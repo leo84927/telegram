@@ -9,7 +9,10 @@ var (
 	ServiceName = sync.OnceValue(func() string {
 		return os.Getenv("SERVICE_NAME")
 	})
-	ExchangeRateApiKey = sync.OnceValue(func() string {
-		return os.Getenv("EXCHANGE_RATE_API_KEY")
+	TelegramToken = sync.OnceValue(func() string {
+		return os.Getenv("TELEGRAM_TOKEN")
+	})
+	TelegramChatId = sync.OnceValue(func() string {
+		return os.Getenv("TELEGRAM_CHAT_ID")
 	})
 )
