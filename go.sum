@@ -1,5 +1,3 @@
-buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260320021508-a05aa57d34de.1 h1:03T7ti0uRm/da8IqzXp6Q3iT1SUCRIBUl/0OWyKcnxY=
-buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260320021508-a05aa57d34de.1/go.mod h1:NFHp6NcKkJOUZY5R9ibniCf77ygufsvl/dCiujGXg5o=
 buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260320024256-2c451b82b432.1 h1:Ka47JF/ILVgAIQv/ew6xA24rFNXTnmK0vGBJKhT6iqU=
 buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260320024256-2c451b82b432.1/go.mod h1:NFHp6NcKkJOUZY5R9ibniCf77ygufsvl/dCiujGXg5o=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=

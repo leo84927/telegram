@@ -23,8 +23,8 @@ type TelegramManager struct {
 
 func NewTelegramManager() *TelegramManager {
 	return &TelegramManager{
-		Token:  config.TelegramToken(),
-		ChatId: config.TelegramChatId(),
+		Token:  config.TelegramToken,
+		ChatId: config.TelegramChatId,
 	}
 }
 

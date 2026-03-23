@@ -47,7 +47,7 @@ func LoadRabbitMQ() {
 	}
 	rabbitmqCfg = RabbitMQ{
 		Config: &rabbitmq.Config{
-			ServiceName:    ServiceName(),
+			ServiceName:    ServiceName,
 			User:           os.Getenv("RABBITMQ_USER"),
 			Password:       os.Getenv("RABBITMQ_PASSWORD"),
 			Host:           os.Getenv("RABBITMQ_HOST"),

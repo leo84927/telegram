@@ -10,7 +10,6 @@ import (
 	"telegram/handle"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/leo84927/rabbitmq/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -18,8 +17,6 @@ import (
 func init() {
 	// 啟動時先清理，防止上次異常結束殘留
 	os.Remove("/tmp/ready")
-	godotenv.Load()
-	config.LoadRabbitMQ()
 }
 
 func main() {
