@@ -38,7 +38,9 @@ func main() {
 		}
 
 		// 建立 ready 檔案用來做 health check
-		os.WriteFile("/tmp/ready", []byte("ok"), 0644)
+		if err := os.WriteFile("/tmp/ready", []byte("ok"), 0644); err != nil {
+			return err
+		}
 
 		// 連線就緒
 		log.Println("RabbitMQ connection and topology ready")
