@@ -10,7 +10,7 @@ import (
 	"telegram/handle"
 	"time"
 
-	"github.com/leo84927/rabbitmq/v2"
+	"github.com/leo84927/core/rabbitmq"
 	"golang.org/x/sync/errgroup"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/leo84927/rabbitmq/v2"
+	"github.com/leo84927/core/rabbitmq"
 )
 
 func MessageHandler(ctx context.Context, msg rabbitmq.Message, publisher rabbitmq.PublishHandler) (requeue bool, err error) {

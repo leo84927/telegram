@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/leo84927/rabbitmq/v2"
+	"github.com/leo84927/core/rabbitmq"
 )
 
 var rabbitmqCfg RabbitMQ
