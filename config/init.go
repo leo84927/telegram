@@ -28,6 +28,8 @@ func init() {
 	ServiceName = EnvMap[cp.TelegramEnvKey_TELEGRAM_SERVICE_NAME.String()]
 	TelegramToken = EnvMap[cp.TelegramEnvKey_TELEGRAM_TOKEN.String()]
 	TelegramChatId = EnvMap[cp.TelegramEnvKey_TELEGRAM_CHAT_ID.String()]
+	AlloyHost = EnvMap[cp.GlobalEnvKey_GLOBAL_ALLOY_HOST.String()]
+	AlloyPort = EnvMap[cp.GlobalEnvKey_GLOBAL_ALLOY_PORT.String()]
 
 	LoadRabbitMQ()
 }
