@@ -71,6 +71,11 @@ func main() {
 		return consumer.WaitForConsume(groupCtx, handle.MessageHandler)
 	})
 
+	// 定期發送心跳給 consul
+	group.Go(func() error {
+		return config.Client.SendHeartbeat(groupCtx, config.ServiceName, 60*time.Second)
+	})
+
 	// 等待所有 goroutine 結束
 	if err := group.Wait(); err != nil {
 		slog.Error(

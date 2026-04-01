@@ -10,16 +10,18 @@ import (
 )
 
 func init() {
-	client, err := consul.NewClient()
+	var err error
+
+	Client, err = consul.NewClient()
 	if err != nil {
 		log.Fatalf("New consul client failed, err: %v\n", eris.ToJSON(err, true))
 	}
 
-	if EnvMap, err = client.List("GLOBAL"); err != nil {
+	if EnvMap, err = Client.List("GLOBAL"); err != nil {
 		log.Fatalf("Get env from consul failed, err: %v\n", eris.ToJSON(err, true))
 	}
 
-	if serviceMap, err := client.List("TELEGRAM"); err != nil {
+	if serviceMap, err := Client.List("TELEGRAM"); err != nil {
 		log.Fatalf("Get env from consul failed, err: %v\n", eris.ToJSON(err, true))
 	} else {
 		maps.Copy(EnvMap, serviceMap)
