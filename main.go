@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"telegram/config"
 	"telegram/handle"
@@ -20,6 +22,24 @@ import (
 func init() {
 	// 啟動時先清理，防止上次異常結束殘留
 	os.Remove("/tmp/ready")
+}
+
+// 包裝 errgroup，就可以不用每個 goroutine 都宣告 defer recover
+func graceful(g *errgroup.Group, fn func() error) {
+	g.Go(func() error {
+		defer func() {
+			if r := recover(); r != nil {
+				err := fmt.Errorf("recovered: %v\n%s", r, debug.Stack())
+				log.Println(err)
+				slog.Error(
+					"panic happened",
+					"error", eris.ToJSON(err, true),
+				)
+			}
+		}()
+
+		return fn()
+	})
 }
 
 func main() {
@@ -45,7 +65,7 @@ func main() {
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	group.Go(func() error {
+	graceful(group, func() error {
 		// 建立連線＆拓樸
 		if err := cm.InitTopology(config.GetRabbitMQConfig().Topology); err != nil {
 			return err
@@ -64,7 +84,7 @@ func main() {
 	})
 
 	// 拓樸建立後才能訂閱 queue 並常駐 consumer
-	group.Go(func() error {
+	graceful(group, func() error {
 		<-connReady
 
 		slog.Info("consumer start")
@@ -72,7 +92,7 @@ func main() {
 	})
 
 	// 定期發送心跳給 consul
-	group.Go(func() error {
+	graceful(group, func() error {
 		return config.Client.SendHeartbeat(groupCtx, config.ServiceName, 60*time.Second)
 	})
 
