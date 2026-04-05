@@ -43,6 +43,17 @@ func graceful(g *errgroup.Group, fn func() error) {
 }
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("recovered: %v\n%s", r, debug.Stack())
+			log.Println(err)
+			slog.Error(
+				"panic happened",
+				"error", eris.ToJSON(err, true),
+			)
+		}
+	}()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
