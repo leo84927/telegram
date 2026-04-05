@@ -26,10 +26,10 @@ func init() {
 
 // 包裝 errgroup，就可以不用每個 goroutine 都宣告 defer recover
 func graceful(g *errgroup.Group, fn func() error) {
-	g.Go(func() error {
+	g.Go(func() (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				err := fmt.Errorf("recovered: %v\n%s", r, debug.Stack())
+				err = fmt.Errorf("recovered: %v\n%s", r, debug.Stack())
 				log.Println(err)
 				slog.Error(
 					"panic happened",
