@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 呼叫 center 倉庫中的 reusable workflow
+  lint:
+    uses: leo84927/center/.github/workflows/reusable-workflow.yml@master
+    with:
+      go-version: '1.26.1'    # 版本
+      working-directory: '.'  # 執行目錄
+    secrets:
+      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
