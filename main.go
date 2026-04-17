@@ -81,7 +81,7 @@ func main() {
 
 	graceful(group, func() error {
 		// 建立連線＆拓樸
-		if err := cm.InitTopology(config.GetRabbitMQConfig().Topology); err != nil {
+		if err := cm.InitTopology(groupCtx, config.GetRabbitMQConfig().Topology); err != nil {
 			return err
 		}
 
