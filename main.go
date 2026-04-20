@@ -21,10 +21,9 @@ import (
 
 func init() {
 	// 啟動時先清理，防止上次異常結束殘留
-	err := os.Remove("/tmp/ready")
-	if err != nil {
-		panic(err)
-	}
+	if err := os.Remove("/tmp/ready"); err != nil && !os.IsNotExist(err) {
+        panic(err)
+    }
 }
 
 // 包裝 errgroup，就可以不用每個 goroutine 都宣告 defer recover
