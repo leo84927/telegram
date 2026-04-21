@@ -9,10 +9,10 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
-	"telegram/config"
 	"telegram/handle"
 	"time"
 
+	"github.com/leo84927/core/config"
 	"github.com/leo84927/core/logger"
 	"github.com/leo84927/core/rabbitmq"
 	"github.com/rotisserie/eris"
@@ -74,7 +74,7 @@ func main() {
 	defer cm.Close()
 
 	connReady := make(chan struct{})
-	consumer := cm.NewConsumer(config.GetRabbitMQConfig().TelegramQueue.Name, "", 5, 20*time.Second)
+	consumer := cm.NewConsumer(config.GetRabbitMQConfig().ServiceQueue.Name, "", 5, 20*time.Second)
 
 	group, groupCtx := errgroup.WithContext(ctx)
 
