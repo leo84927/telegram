@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"telegram/handle"
 
 	"github.com/leo84927/core/initialize"
@@ -17,17 +19,20 @@ func init() {
 }
 
 func main() {
-	app, err := initialize.New()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	app, err := initialize.New(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
-	defer app.Close()
+	defer app.Close(ctx)
 
 	app.Workers = []func(ctx context.Context) error{
 		func(ctx context.Context) error {
 			return app.Consumer.WaitForConsume(ctx, handle.MessageHandler)
 		},
 	}
-	app.Run()
+	app.Run(ctx)
 }
