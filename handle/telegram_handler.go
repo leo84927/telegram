@@ -2,7 +2,7 @@ package handle
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"sync"
 	"telegram/config"
@@ -10,6 +10,7 @@ import (
 	erp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/exchange_rate"
 	mqp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/rabbitmq"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/rotisserie/eris"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -31,19 +32,28 @@ func NewTelegramManager() *TelegramManager {
 func (tm *TelegramManager) sendMessage(body []byte) {
 	bot, err := tm.getBot()
 	if err != nil {
-		log.Printf("Get telegram bot failed, err: %v\n", err)
+		slog.Error(
+			"get telegram bot failed",
+			"error", eris.ToJSON(err, true),
+		)
 		return
 	}
 
 	chatId, err := strconv.Atoi(tm.ChatId)
 	if err != nil {
-		log.Printf("Translate chat id failed, err: %v\n", err)
+		slog.Error(
+			"translate chat id failed",
+			"error", eris.ToJSON(err, true),
+		)
 		return
 	}
 
 	message, err := buildMessage(body)
 	if err != nil {
-		log.Printf("buildMessage failed, err: %v\n", err)
+		slog.Error(
+			"build message failed",
+			"error", eris.ToJSON(err, true),
+		)
 		return
 	}
 
@@ -51,7 +61,10 @@ func (tm *TelegramManager) sendMessage(body []byte) {
 	// TODO 之後視情況加入 botMsg.DisableNotification = true
 	_, err = bot.Send(botMsg)
 	if err != nil {
-		log.Printf("Send message failed, err: %v\n", err)
+		slog.Error(
+			"send message failed",
+			"error", eris.ToJSON(err, true),
+		)
 		return
 	}
 }
@@ -85,7 +98,10 @@ func buildMessage(body []byte) (string, error) {
 	var envelope mqp.Envelope
 	err := protojson.Unmarshal(body, &envelope)
 	if err != nil {
-		log.Printf("buildMessage unmarshal envelope json failed, err: %v\n", err)
+		slog.Error(
+			"build message unmarshal envelope json failed",
+			"error", eris.ToJSON(err, true),
+		)
 		return "", err
 	}
 
@@ -94,7 +110,10 @@ func buildMessage(body []byte) (string, error) {
 		var exchangeRate erp.ExchangeRate
 		err := protojson.Unmarshal([]byte(envelope.Data), &exchangeRate)
 		if err != nil {
-			log.Printf("buildMessage unmarshal exchangeRate json failed, err: %v\n", err)
+			slog.Error(
+				"build message unmarshal exchangeRate json failed",
+				"error", eris.ToJSON(err, true),
+			)
 			return "", err
 		}
 
@@ -102,7 +121,10 @@ func buildMessage(body []byte) (string, error) {
 		if exchangeRate.BaseCurrency == erp.Currency_TWD {
 			rate, err := decimal.NewFromString(exchangeRate.Rate)
 			if err != nil {
-				log.Printf("buildMessage translate exchange rate failed, err: %v\n", err)
+				slog.Error(
+					"build message translate exchange rate failed",
+					"error", eris.ToJSON(err, true),
+				)
 				return "", err
 			}
 			reverseRate := decimal.NewFromInt(1).DivRound(rate, 3).String()

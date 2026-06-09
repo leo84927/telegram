@@ -5,7 +5,8 @@ go 1.26.1
 require (
 	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260514041544-eb667470b4d7.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/leo84927/core v1.5.1
+	github.com/leo84927/core v1.6.3
+	github.com/rotisserie/eris v0.5.4
 	github.com/shopspring/decimal v1.4.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -36,7 +37,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
-	github.com/rotisserie/eris v0.5.4 // indirect
+	github.com/redis/go-redis/v9 v9.20.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/otelslog v0.17.0 // indirect
 	go.opentelemetry.io/otel v1.42.0 // indirect
@@ -47,6 +48,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.18.0 // indirect
 	go.opentelemetry.io/otel/trace v1.42.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

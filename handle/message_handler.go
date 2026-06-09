@@ -2,15 +2,18 @@ package handle
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/leo84927/core/rabbitmq"
 )
 
 func MessageHandler(ctx context.Context, msg rabbitmq.Message, publisher rabbitmq.PublishHandler) (requeue bool, err error) {
-	log.Printf("=== Start processing message ===")
-	log.Printf("Message body: %s", msg.Body)
-	defer log.Printf("=== End processing message ===")
+	slog.Info("=== processing message start ===")
+	slog.Info(
+		"received message from RabbitMQ",
+		"message", msg.Body,
+	)
+	defer slog.Info("=== processing message finished ===")
 
 	// send message to telegram
 	go NewTelegramManager().sendMessage(msg.Body)
