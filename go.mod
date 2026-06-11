@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260609093040-0761e9191ee7.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/leo84927/core v1.6.9
+	github.com/leo84927/core v1.7.1
 	github.com/rotisserie/eris v0.5.4
 	github.com/shopspring/decimal v1.4.0
 	google.golang.org/protobuf v1.36.11
@@ -42,6 +42,8 @@ require (
 	go.opentelemetry.io/contrib/bridges/otelslog v0.17.0 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.20.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0 // indirect
 	go.opentelemetry.io/otel/log v0.20.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
