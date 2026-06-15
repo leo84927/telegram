@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"telegram/router"
 )
 
 type WebhookServer struct {
@@ -20,14 +21,9 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 		return fmt.Errorf("load webhook certificate failed: %w", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /hello", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "hello world")
-	})
-
 	server := &http.Server{
 		Addr:    ws.Addr,
-		Handler: mux,
+		Handler: router.New(),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
