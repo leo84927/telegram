@@ -3,7 +3,7 @@ module telegram
 go 1.26.1
 
 require (
-	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260615060600-0f9c0c630de1.1
+	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260615075404-7149432d0009.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/leo84927/core v1.7.1
 	github.com/rotisserie/eris v0.5.4

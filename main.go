@@ -32,8 +32,7 @@ func main() {
 	config.TelegramChatId = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_CHAT_ID.String()]
 	config.WebhookCertPEM = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
 	config.WebhookKeyPEM = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
-	fmt.Fprintln(os.Stdout, config.WebhookCertPEM)
-	fmt.Fprintln(os.Stdout, config.WebhookKeyPEM)
+	config.WebhookPort = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
 	coreconfig.LoadBasicRabbitMQ()
 	coreconfig.LoadCompleteTopology(rabbitmq.Queue{
 		Name: coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
@@ -52,7 +51,7 @@ func main() {
 	webhook := &handle.WebhookServer{
 		CertPEM: config.WebhookCertPEM,
 		KeyPEM:  config.WebhookKeyPEM,
-		Addr:    ":8443",
+		Addr:    config.WebhookPort,
 	}
 
 	app.Workers = []func(ctx context.Context) error{
