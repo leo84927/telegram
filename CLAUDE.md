@@ -4,7 +4,7 @@
 ## 架構
 
 ```
-config/init.go          ← init() 從 Consul 載入設定、建立 RabbitMQ topology
+config/init.go          ← init() 載入環境變數、建立 RabbitMQ topology
 config/common.go        ← TelegramToken、TelegramChatId
 
 handle/message_handler.go   ← RabbitMQ consumer 的進入點
@@ -25,7 +25,7 @@ RabbitMQ message
   → Telegram Bot API 發送
 ```
 
-## Consul 設定鍵
+## 設定鍵
 
 | 鍵 | 用途 |
 |---|---|
