@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
 	"telegram/config"
 
 	erp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/exchange_rate"
@@ -18,8 +17,6 @@ import (
 type TelegramManager struct {
 	Token  string
 	ChatId string
-	bot    *tgbotapi.BotAPI
-	mutex  sync.RWMutex
 }
 
 func NewTelegramManager() *TelegramManager {
@@ -30,10 +27,10 @@ func NewTelegramManager() *TelegramManager {
 }
 
 func (tm *TelegramManager) sendMessage(body []byte) {
-	bot, err := tm.getBot()
+	bot, err := tgbotapi.NewBotAPI(tm.Token)
 	if err != nil {
 		slog.Error(
-			"get telegram bot failed",
+			"new telegram bot failed",
 			"error", eris.ToJSON(err, true),
 		)
 		return
@@ -67,31 +64,6 @@ func (tm *TelegramManager) sendMessage(body []byte) {
 		)
 		return
 	}
-}
-
-func (tm *TelegramManager) getBot() (*tgbotapi.BotAPI, error) {
-	tm.mutex.RLock()
-	if tm.bot != nil {
-		tm.mutex.RUnlock()
-		return tm.bot, nil
-	}
-	tm.mutex.RUnlock()
-
-	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
-
-	// double check
-	if tm.bot != nil {
-		return tm.bot, nil
-	}
-
-	bot, err := tgbotapi.NewBotAPI(tm.Token)
-	if err != nil {
-		return nil, err
-	}
-
-	tm.bot = bot
-	return tm.bot, nil
 }
 
 func buildMessage(body []byte) (string, error) {
