@@ -1,6 +1,22 @@
 # telegram
 負責處理所有與 Telegram Bot 相關的任務，目前主要功能為接收 RabbitMQ 訊息並轉發至 Telegram chat
 
+# 相關 API
+
+```sh
+# 綁定 telegram webhook
+curl -F "url=<作為 webhook 接收 server 的 url>" \
+     -F "certificate=@webhook.pem" \
+     https://api.telegram.org/bot<token>/setWebhook
+# 檢查是否綁定成功
+https://api.telegram.org/bot<token>/getWebhookInfo
+
+# 內部呼叫
+curl -k -X POST https://localhost:8443/health
+# 外部呼叫
+curl -k -X POST https://<靜態 IP>:8443/health
+```
+
 ## 架構
 
 ```
