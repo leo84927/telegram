@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"telegram/router"
+
+	"google.golang.org/grpc"
 )
 
 type WebhookServer struct {
-	CertPEM string
-	KeyPEM  string
-	Addr    string
+	CertPEM    string
+	KeyPEM     string
+	Addr       string
+	GrpcClient *grpc.ClientConn
 }
 
 func (ws *WebhookServer) Run(ctx context.Context) error {
@@ -23,7 +26,7 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:    ws.Addr,
-		Handler: router.New(),
+		Handler: router.New(ws.GrpcClient),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

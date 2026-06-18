@@ -9,10 +9,12 @@ import (
 	"telegram/config"
 	"telegram/handle"
 
-	cp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/consul"
+	env "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/env"
 	coreconfig "github.com/leo84927/core/config"
 	"github.com/leo84927/core/initialize"
 	"github.com/leo84927/core/rabbitmq"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -20,24 +22,34 @@ func main() {
 	defer stop()
 
 	coreconfig.InitFromRedis(ctx, "TELEGRAM")
-	coreconfig.ServiceName = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_SERVICE_NAME.String()]
-	config.TelegramToken = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_TOKEN.String()]
-	config.TelegramChatId = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_CHAT_ID.String()]
-	config.WebhookCertPEM = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
-	config.WebhookKeyPEM = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
-	config.WebhookPort = coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
+	coreconfig.ServiceName = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_SERVICE_NAME.String()]
+	config.TelegramToken = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_TOKEN.String()]
+	config.TelegramChatId = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_CHAT_ID.String()]
+	config.WebhookCertPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
+	config.WebhookKeyPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
+	config.WebhookPort = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
 	coreconfig.LoadBasicRabbitMQ()
 	coreconfig.LoadCompleteTopology(rabbitmq.Queue{
-		Name: coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
+		Name: coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
 		Keys: []string{
-			coreconfig.EnvMap[cp.TelegramEnvKey_TELEGRAM_RABBITMQ_KEY.String()],
+			coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_KEY.String()],
 		},
 	})
 
+	bookkeepingConn, err := grpc.NewClient(
+		"unix://"+coreconfig.EnvMap[env.GlobalEnvKey_GLOBAL_BOOKKEEPING_SOCK_FILE_PATH.String()],
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+
 	webhook := &handle.WebhookServer{
-		CertPEM: config.WebhookCertPEM,
-		KeyPEM:  config.WebhookKeyPEM,
-		Addr:    config.WebhookPort,
+		CertPEM:    config.WebhookCertPEM,
+		KeyPEM:     config.WebhookKeyPEM,
+		Addr:       config.WebhookPort,
+		GrpcClient: bookkeepingConn,
 	}
 
 	app, err := initialize.New(ctx, &initialize.App{

@@ -6,16 +6,23 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
+	"buf.build/gen/go/leo84927-proto/scheduler/grpc/go/bookkeeping/bookkeepinggrpc"
+	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rotisserie/eris"
+	"google.golang.org/grpc"
 )
 
-func New() *http.ServeMux {
-	mux := http.NewServeMux()
+func New(bookkeepingConn *grpc.ClientConn) *http.ServeMux {
+	bk := bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn)
 
+	mux := http.NewServeMux()
 	mux.HandleFunc("POST /health", health)
-	mux.HandleFunc("POST /webhook", webhook)
+	mux.HandleFunc("POST /webhook", func(w http.ResponseWriter, r *http.Request) {
+		webhook(w, r, bk)
+	})
 
 	return mux
 }
@@ -24,7 +31,7 @@ func health(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "health check success")
 }
 
-func webhook(w http.ResponseWriter, r *http.Request) {
+func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error(
@@ -59,6 +66,18 @@ func webhook(w http.ResponseWriter, r *http.Request) {
 	switch update.Message.Text {
 	case "/hello":
 		replyJSON(w, update.Message.Chat.ID, "hello world")
+	case "/group":
+		resp, err := bk.Group(r.Context(), &bookkeepingpb.GroupRequest{})
+		if err != nil {
+			replyJSON(w, update.Message.Chat.ID, "查詢失敗: "+err.Error())
+			return
+		}
+
+		var sb strings.Builder
+		for _, g := range resp.Groups {
+			fmt.Fprintf(&sb, "%d. %s\n", g.Id, g.Name)
+		}
+		replyJSON(w, update.Message.Chat.ID, sb.String())
 	default:
 		replyJSON(w, update.Message.Chat.ID, "unknown command")
 	}
