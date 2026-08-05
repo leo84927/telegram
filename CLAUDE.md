@@ -8,6 +8,12 @@
 curl -F "url=<作為 webhook 接收 server 的 url>" \
      -F "certificate=@webhook.pem" \
      https://api.telegram.org/bot<token>/setWebhook
+# header 帶 secret 綁定
+curl -F "url=https://<你的IP>:8443/webhook" \
+     -F "certificate=@webhook.pem" \
+     -F "secret_token=$SECRET" \
+     https://api.telegram.org/bot<token>/setWebhook
+
 # 檢查是否綁定成功
 https://api.telegram.org/bot<token>/getWebhookInfo
 
@@ -15,6 +21,8 @@ https://api.telegram.org/bot<token>/getWebhookInfo
 curl -k -X POST https://localhost:8443/health
 # 外部呼叫
 curl -k -X POST https://<靜態 IP>:8443/health
+# 檢驗沒帶 secret 是否會正常返回 401
+curl -i -k -X POST https://<靜態 IP>:8443/webhook -d '{}'
 ```
 
 ## 架構
@@ -50,6 +58,10 @@ RabbitMQ message
 | `TELEGRAM_CHAT_ID` | 目標 chat ID |
 | `TELEGRAM_RABBITMQ_QUEUE` | 訂閱的 queue 名稱 |
 | `TELEGRAM_RABBITMQ_KEY` | routing key |
+| `TELEGRAM_WEBHOOK_CERT_PEM` | webhook TLS 憑證（PEM 內容） |
+| `TELEGRAM_WEBHOOK_KEY_PEM` | webhook TLS 私鑰（PEM 內容） |
+| `TELEGRAM_WEBHOOK_PORT` | webhook 監聽位址，例如 `:8443` |
+| `TELEGRAM_WEBHOOK_SECRET` | webhook 驗證用 secret，須與 setWebhook 的 `secret_token` 一致；空值則不驗證 |
 
 ## 依賴
 

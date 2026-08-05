@@ -7,4 +7,5 @@ var (
 	WebhookCertPEM string
 	WebhookKeyPEM  string
 	WebhookPort    string
+	WebhookSecret  string
 )

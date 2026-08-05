@@ -1,12 +1,14 @@
 package router
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"telegram/config"
 
 	"buf.build/gen/go/leo84927-proto/scheduler/grpc/go/bookkeeping/bookkeepinggrpc"
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
@@ -31,7 +33,26 @@ func health(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "health check success")
 }
 
+// authorizedSecret 比對 Telegram 帶來的 secret token header。
+// 未設定 WebhookSecret 時放行，避免設定 secret 前直接中斷既有 webhook。
+func authorizedSecret(got string) bool {
+	if config.WebhookSecret == "" {
+		return true
+	}
+	// 定時比較，避免 timing attack 洩漏 secret
+	return subtle.ConstantTimeCompare([]byte(got), []byte(config.WebhookSecret)) == 1
+}
+
 func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient) {
+	if !authorizedSecret(r.Header.Get("X-Telegram-Bot-Api-Secret-Token")) {
+		slog.Warn(
+			"webhook rejected: invalid secret token",
+			"remote", r.RemoteAddr,
+		)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error(

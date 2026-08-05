@@ -28,6 +28,7 @@ func main() {
 	config.WebhookCertPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
 	config.WebhookKeyPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
 	config.WebhookPort = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
+	config.WebhookSecret = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_SECRET.String()]
 	coreconfig.LoadBasicRabbitMQ()
 	coreconfig.LoadCompleteTopology(rabbitmq.Queue{
 		Name: coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
