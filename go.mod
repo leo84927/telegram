@@ -6,7 +6,7 @@ require (
 	buf.build/gen/go/leo84927-proto/scheduler/grpc/go v1.6.2-20260617092915-630856905b4e.1
 	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260707065043-d47284b3e946.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/leo84927/core v1.7.5
+	github.com/leo84927/core v1.7.6
 	github.com/rotisserie/eris v0.5.4
 	github.com/shopspring/decimal v1.4.0
 	google.golang.org/grpc v1.81.1
