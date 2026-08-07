@@ -16,7 +16,7 @@ func MessageHandler(ctx context.Context, msg rabbitmq.Message, publisher rabbitm
 	defer slog.Info("=== processing message finished ===")
 
 	// send message to telegram
-	go NewTelegramManager().sendMessage(msg.Body)
+	go NewTelegramManager().sendMessage(ctx, msg.Body)
 
 	return false, nil
 }

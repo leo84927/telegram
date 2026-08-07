@@ -13,7 +13,7 @@ import (
 	"buf.build/gen/go/leo84927-proto/scheduler/grpc/go/bookkeeping/bookkeepinggrpc"
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/rotisserie/eris"
+	"github.com/leo84927/core/logger"
 	"google.golang.org/grpc"
 )
 
@@ -55,10 +55,7 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		slog.Error(
-			"read webhook request body failed",
-			"error", eris.ToJSON(err, true),
-		)
+		logger.Error(r.Context(), "read webhook request body failed", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -72,10 +69,7 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 
 	var update tgbotapi.Update
 	if err := json.Unmarshal(body, &update); err != nil {
-		slog.Error(
-			"decode webhook update failed",
-			"error", eris.ToJSON(err, true),
-		)
+		logger.Error(r.Context(), "decode webhook update failed", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
