@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net/http"
 	"telegram/router"
 
+	"github.com/rotisserie/eris"
 	"google.golang.org/grpc"
 )
 
@@ -21,7 +21,8 @@ type WebhookServer struct {
 func (ws *WebhookServer) Run(ctx context.Context) error {
 	cert, err := tls.X509KeyPair([]byte(ws.CertPEM), []byte(ws.KeyPEM))
 	if err != nil {
-		return fmt.Errorf("load webhook certificate failed: %w", err)
+		// 用 eris.Wrap 而非 fmt.Errorf：非 eris 的最外層會讓 logger 的 exception.stacktrace 找不到堆疊
+		return eris.Wrap(err, "load webhook certificate failed")
 	}
 
 	server := &http.Server{
@@ -41,7 +42,7 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 	// 手動建立 TLS listener
 	ln, err := tls.Listen("tcp", ws.Addr, server.TLSConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create TLS listener: %w", err)
+		return eris.Wrap(err, "failed to create TLS listener")
 	}
 
 	// Serve 只接受 net.Listener，TLS 或 plain HTTP 都可以
