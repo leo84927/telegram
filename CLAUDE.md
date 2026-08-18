@@ -49,6 +49,17 @@ RabbitMQ message
   → Telegram Bot API 發送
 ```
 
+## 日誌與 trace 關聯
+
+消費路徑（`MessageHandler` → `sendMessage` → `buildMessage`）上的日誌**一律使用帶 `ctx` 的版本**
+（`slog.InfoContext` / `logger.Error(ctx, ...)`），不要用 `slog.Info`。
+
+core 的 consumer 已從 AMQP headers 萃取上游 `traceparent` 並開了 span（見 `core/CLAUDE.md` 的
+「Trace context 傳播」），日誌只有帶著那個 `ctx` 才會寫出 `trace_id` / `span_id`，
+Grafana 上才能和上游 `exchange_rate` 的日誌串成同一條。內部函式若還沒有 `ctx` 參數，要一併穿透。
+
+webhook 路徑（`router/`）不在此列：它的請求沒有上游 trace，目前也未接 HTTP 的 OTEL instrumentation。
+
 ## 設定鍵
 
 | 鍵 | 用途 |
@@ -69,3 +80,4 @@ RabbitMQ message
 - `github.com/shopspring/decimal` — 匯率精確運算
 - `github.com/leo84927/core` — 共用基礎建設
 - `buf.build/gen/go/.../scheduler` — proto 定義（Envelope、ExchangeRate、Currency）
+- `go.opentelemetry.io/otel/trace` — 僅測試使用（組出帶 span 的 context 驗證日誌關聯）
