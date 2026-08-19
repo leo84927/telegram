@@ -58,7 +58,20 @@ core 的 consumer 已從 AMQP headers 萃取上游 `traceparent` 並開了 span�
 「Trace context 傳播」），日誌只有帶著那個 `ctx` 才會寫出 `trace_id` / `span_id`，
 Grafana 上才能和上游 `exchange_rate` 的日誌串成同一條。內部函式若還沒有 `ctx` 參數，要一併穿透。
 
-webhook 路徑（`router/`）不在此列：它的請求沒有上游 trace，目前也未接 HTTP 的 OTEL instrumentation。
+webhook 路徑（`router/`）同樣適用，只是 span 由自己開：`router.instrument` 為每個 webhook 請求開一個
+`SpanKindServer` 的 span（名稱 `POST /webhook`，帶 `http.request.method` / `url.path` /
+`http.response.status_code`），再把該 span 的 `ctx` 交給 handler。handler 內的日誌——包含拒絕未授權請求
+那則——都要用帶 `ctx` 的版本，否則在 Grafana 上會和 span 脫鉤。
+
+`instrument` 只套在 webhook，`health` 刻意不套：部署健康檢查頻率高，開 span 只會灌爆 trace。
+未通過 secret 驗證的請求仍會開 span——那正是需要追查來源的場合，代價是外部流量可以驅動 span 產生。
+
+被 `instrument` 包住的 handler 回傳它實際寫出的狀態碼，新增回應路徑時記得回傳值要跟 `WriteHeader` 一致。
+狀態碼是唯一的錯誤判準，所以**回應 200 但業務失敗的分支**（例如 `/group` 查詢失敗仍要把錯誤訊息回給使用者）
+要自己 `RecordError` + `SetStatus(codes.Error, ...)`，否則 Grafana 上整條 trace 都是綠的。
+handler panic 由 `instrument` 補記 500 後照原樣往上拋，交還給 `net/http`。
+
+telegram → bookkeeping 的 gRPC 呼叫目前還沒 instrument，trace 到 webhook span 為止（見 issue #6）。
 
 ## 設定鍵
 
@@ -80,4 +93,5 @@ webhook 路徑（`router/`）不在此列：它的請求沒有上游 trace，目
 - `github.com/shopspring/decimal` — 匯率精確運算
 - `github.com/leo84927/core` — 共用基礎建設
 - `buf.build/gen/go/.../scheduler` — proto 定義（Envelope、ExchangeRate、Currency）
-- `go.opentelemetry.io/otel/trace` — 僅測試使用（組出帶 span 的 context 驗證日誌關聯）
+- `go.opentelemetry.io/otel`、`go.opentelemetry.io/otel/trace` — webhook 路徑開 span
+- `go.opentelemetry.io/otel/sdk` — 僅測試使用（記憶體 tracer provider 驗證 span 與日誌關聯）
