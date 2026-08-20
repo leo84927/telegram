@@ -33,3 +33,5 @@ go.work.sum
 
 # binary
 telegram
+
+.DS_Store
