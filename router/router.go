@@ -21,15 +21,14 @@ import (
 	"google.golang.org/grpc"
 )
 
+// 建立自訂的 router，並把 bookkeeping gRPC client 注入給 webhook handler
 func New(bookkeepingConn *grpc.ClientConn) *http.ServeMux {
-	bk := bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn)
-
 	mux := http.NewServeMux()
-	// health 不套 instrument：部署健康檢查頻率高，開 span 只會灌爆 trace
-	// webhook 則是連未通過 secret 驗證的請求也開 span——那正是需要追查來源的場合（見 CLAUDE.md）
+
+	// health 不套 instrument：若未來部署健康檢查頻率高，開 span 會灌爆 trace
 	mux.HandleFunc("POST /health", health)
 	mux.Handle("POST /webhook", instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, bk)
+		return webhook(w, r, bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn))
 	}))
 
 	return mux
@@ -46,6 +45,7 @@ func health(w http.ResponseWriter, r *http.Request) {
  */
 func instrument(handler func(http.ResponseWriter, *http.Request) int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 生成 server span，並把 span context 注入給 handler
 		ctx, span := otel.Tracer("router").Start(
 			r.Context(),
 			r.Method+" "+r.URL.Path,
@@ -70,8 +70,10 @@ func instrument(handler func(http.ResponseWriter, *http.Request) int) http.Handl
 			}
 		}()
 
+		// 執行 handler，並把 span context 注入給 handler
 		status := handler(w, r.WithContext(ctx))
 
+		// 記錄 handler 寫出的狀態碼，並在 5xx 時標記 span 為 error
 		span.SetAttributes(semconv.HTTPResponseStatusCode(status))
 		if status >= http.StatusInternalServerError {
 			span.SetStatus(codes.Error, http.StatusText(status))
@@ -79,12 +81,13 @@ func instrument(handler func(http.ResponseWriter, *http.Request) int) http.Handl
 	})
 }
 
-// authorizedSecret 比對 Telegram 帶來的 secret token header。
-// 未設定 WebhookSecret 時放行，避免設定 secret 前直接中斷既有 webhook。
+// 比對 telegram 帶來的 secret token header
 func authorizedSecret(got string) bool {
+	// 未設定 WebhookSecret 時放行，避免設定 secret 前直接中斷既有 webhook
 	if config.WebhookSecret == "" {
 		return true
 	}
+
 	// 定時比較，避免 timing attack 洩漏 secret
 	return subtle.ConstantTimeCompare([]byte(got), []byte(config.WebhookSecret)) == 1
 }
@@ -93,6 +96,7 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 	// 日誌要帶 ctx 才會有 trace_id / span_id（見 CLAUDE.md 的「日誌與 trace 關聯」）
 	ctx := r.Context()
 
+	// 驗證 telegram 帶來的 secret token header
 	if !authorizedSecret(r.Header.Get("X-Telegram-Bot-Api-Secret-Token")) {
 		slog.WarnContext(
 			ctx,
@@ -157,6 +161,15 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 	return http.StatusOK
 }
 
+/*
+ * 若要直接在當次請求回應訊息給使用者，格式必須是 json。
+ * Content-Type Header: application/json
+ * Body: {
+ *   "method": "sendMessage",
+ *   "chat_id": <chat_id>,
+ *   "text": "<message>"
+ * }
+ */
 func replyJSON(w http.ResponseWriter, chatID int64, text string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

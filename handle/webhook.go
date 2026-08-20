@@ -11,20 +11,23 @@ import (
 	"google.golang.org/grpc"
 )
 
+// 建立 Webhook(HTTPS) Server 所需的參數
 type WebhookServer struct {
-	CertPEM    string
-	KeyPEM     string
-	Addr       string
+	CertPEM    string // PEM 格式的憑證
+	KeyPEM     string // PEM 格式的私鑰
+	Addr       string // 監聽的地址，例如 ":8443"
 	GrpcClient *grpc.ClientConn
 }
 
+// 啟動 Webhook(HTTPS) Server
 func (ws *WebhookServer) Run(ctx context.Context) error {
+	// 解析憑證和私鑰
 	cert, err := tls.X509KeyPair([]byte(ws.CertPEM), []byte(ws.KeyPEM))
 	if err != nil {
-		// 用 eris.Wrap 而非 fmt.Errorf：非 eris 的最外層會讓 logger 的 exception.stacktrace 找不到堆疊
 		return eris.Wrap(err, "load webhook certificate failed")
 	}
 
+	// 建立 Webhook(HTTPS) Server，並使用自訂的 router
 	server := &http.Server{
 		Addr:    ws.Addr,
 		Handler: router.New(ws.GrpcClient),
@@ -34,6 +37,7 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 		},
 	}
 
+	// 在 context 被取消時關閉 server
 	go func() {
 		<-ctx.Done()
 		server.Shutdown(context.Background())
