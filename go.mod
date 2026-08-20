@@ -9,6 +9,7 @@ require (
 	github.com/leo84927/core v1.7.8
 	github.com/rotisserie/eris v0.5.4
 	github.com/shopspring/decimal v1.4.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.69.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0

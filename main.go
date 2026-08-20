@@ -13,8 +13,6 @@ import (
 	coreconfig "github.com/leo84927/core/config"
 	"github.com/leo84927/core/initialize"
 	"github.com/leo84927/core/rabbitmq"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -37,9 +35,8 @@ func main() {
 		},
 	})
 
-	bookkeepingConn, err := grpc.NewClient(
-		"unix://"+coreconfig.EnvMap[env.GlobalEnvKey_GLOBAL_BOOKKEEPING_SOCK_FILE_PATH.String()],
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	bookkeepingConn, err := handle.NewBookkeepingClient(
+		coreconfig.EnvMap[env.GlobalEnvKey_GLOBAL_BOOKKEEPING_SOCK_FILE_PATH.String()],
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

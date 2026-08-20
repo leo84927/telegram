@@ -31,6 +31,7 @@ curl -i -k -X POST https://<靜態 IP>:8443/webhook -d '{}'
 config/init.go          ← init() 載入環境變數、建立 RabbitMQ topology
 config/common.go        ← TelegramToken、TelegramChatId
 
+handle/webhook.go           ← WebhookServer：HTTPS server 啟動；NewBookkeepingClient：已 instrument 的 gRPC client
 handle/message_handler.go   ← RabbitMQ consumer 的進入點
 handle/telegram_handler.go  ← TelegramManager：解析 Envelope、格式化訊息、呼叫 Bot API 發送
 
@@ -71,7 +72,13 @@ webhook 路徑（`router/`）同樣適用，只是 span 由自己開：`router.i
 要自己 `RecordError` + `SetStatus(codes.Error, ...)`，否則 Grafana 上整條 trace 都是綠的。
 handler panic 由 `instrument` 補記 500 後照原樣往上拋，交還給 `net/http`。
 
-telegram → bookkeeping 的 gRPC 呼叫目前還沒 instrument，trace 到 webhook span 為止（見 issue #6）。
+telegram → bookkeeping 的 gRPC 呼叫由 `handle.NewBookkeepingClient` 掛上 `otelgrpc` 的
+`WithStatsHandler`，把 webhook span 的 `traceparent` 注入 gRPC metadata；`bookkeeping` 端同樣掛了
+StatsHandler 萃取並開子 span，因此一次使用者輸入是單一 trace：webhook span → gRPC 呼叫端 span →
+bookkeeping 服務端 span。少了任一端就會斷成兩條 trace。
+
+注入 `traceparent` 的前提是**全域 propagator 已設定**（production 由 `core` 的 `SetTracer` 設；otel 的
+預設是空的 composite，什麼都不會寫出），所以測試裡碰到 span 的案例都要自己補 `otel.SetTextMapPropagator`。
 
 ## 設定鍵
 
@@ -94,4 +101,6 @@ telegram → bookkeeping 的 gRPC 呼叫目前還沒 instrument，trace 到 webh
 - `github.com/leo84927/core` — 共用基礎建設
 - `buf.build/gen/go/.../scheduler` — proto 定義（Envelope、ExchangeRate、Currency）
 - `go.opentelemetry.io/otel`、`go.opentelemetry.io/otel/trace` — webhook 路徑開 span
+- `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc` — bookkeeping gRPC 呼叫端
+  span 與 `traceparent` 注入（版本須與 otel 對齊：v0.69.0 ↔ otel v1.44.0）
 - `go.opentelemetry.io/otel/sdk` — 僅測試使用（記憶體 tracer provider 驗證 span 與日誌關聯）

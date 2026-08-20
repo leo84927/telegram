@@ -8,7 +8,9 @@ import (
 	"telegram/router"
 
 	"github.com/rotisserie/eris"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // 建立 Webhook(HTTPS) Server 所需的參數
@@ -17,6 +19,24 @@ type WebhookServer struct {
 	KeyPEM     string // PEM 格式的私鑰
 	Addr       string // 監聽的地址，例如 ":8443"
 	GrpcClient *grpc.ClientConn
+}
+
+/*
+ * NewBookkeepingClient 建立連往 bookkeeping 的 gRPC client
+ * StatsHandler 是這條同步呼叫在 trace 上不斷開的唯一關鍵：它把 webhook span 的 traceparent
+ * 注入 gRPC metadata，bookkeeping 端才接得上同一條 trace（見 CLAUDE.md 的「日誌與 trace 關聯」）
+ */
+func NewBookkeepingClient(sockFilePath string) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
+		"unix://"+sockFilePath,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
+	if err != nil {
+		return nil, eris.Wrap(err, "new bookkeeping grpc client failed")
+	}
+
+	return conn, nil
 }
 
 // 啟動 Webhook(HTTPS) Server
