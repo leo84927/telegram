@@ -19,6 +19,7 @@ type WebhookServer struct {
 	KeyPEM     string // PEM 格式的私鑰
 	Addr       string // 監聽的地址，例如 ":8443"
 	GrpcClient *grpc.ClientConn
+	Secret     string // telegram webhook 的 secret token，空字串代表不驗
 }
 
 /*
@@ -50,7 +51,7 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 	// 建立 Webhook(HTTPS) Server，並使用自訂的 router
 	server := &http.Server{
 		Addr:    ws.Addr,
-		Handler: router.New(ws.GrpcClient),
+		Handler: router.New(ws.GrpcClient, ws.Secret),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

@@ -10,8 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"telegram/config"
-
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -38,8 +36,7 @@ func TestAuthorizedSecret(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config.WebhookSecret = tt.secret
-			if got := authorizedSecret(tt.got); got != tt.want {
+			if got := authorizedSecret(tt.got, tt.secret); got != tt.want {
 				t.Errorf("authorizedSecret(%q) with secret %q = %v, want %v",
 					tt.got, tt.secret, got, tt.want)
 			}
@@ -117,7 +114,7 @@ func attrs(span sdktrace.ReadOnlySpan) map[attribute.Key]attribute.Value {
 	return got
 }
 
-func post(t *testing.T, path, body string, header map[string]string) *httptest.ResponseRecorder {
+func post(t *testing.T, secret, path, body string, header map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
@@ -126,16 +123,15 @@ func post(t *testing.T, path, body string, header map[string]string) *httptest.R
 	}
 
 	w := httptest.NewRecorder()
-	New(nil).ServeHTTP(w, req)
+	New(nil, secret).ServeHTTP(w, req)
 
 	return w
 }
 
 func TestWebhookRequestRecordsSpan(t *testing.T) {
-	config.WebhookSecret = ""
 	spans := recordSpans(t)
 
-	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
+	post(t, "", "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
 
 	ended := spans.Ended()
 	if len(ended) != 1 {
@@ -163,10 +159,9 @@ func TestWebhookRequestRecordsSpan(t *testing.T) {
 }
 
 func TestRejectedWebhookRequestRecordsStatusOnSpan(t *testing.T) {
-	config.WebhookSecret = "s3cret"
 	spans := recordSpans(t)
 
-	w := post(t, "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
+	w := post(t, "s3cret", "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("回應狀態 = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
@@ -185,7 +180,7 @@ func TestRejectedWebhookRequestRecordsStatusOnSpan(t *testing.T) {
 func TestHealthRequestRecordsNoSpan(t *testing.T) {
 	spans := recordSpans(t)
 
-	post(t, "/health", "", nil)
+	post(t, "", "/health", "", nil)
 
 	if ended := spans.Ended(); len(ended) != 0 {
 		t.Errorf("span 數量 = %d, want 0", len(ended))
@@ -193,11 +188,10 @@ func TestHealthRequestRecordsNoSpan(t *testing.T) {
 }
 
 func TestWebhookLogsCarryTraceContext(t *testing.T) {
-	config.WebhookSecret = ""
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
+	post(t, "", "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
 
 	entries := logs.snapshot()
 	if len(entries) == 0 {
@@ -212,11 +206,10 @@ func TestWebhookLogsCarryTraceContext(t *testing.T) {
 
 // 拒絕未授權請求正是需要追查來源的場合，日誌一樣要帶 trace
 func TestRejectedWebhookLogCarriesTraceContext(t *testing.T) {
-	config.WebhookSecret = "s3cret"
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	post(t, "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
+	post(t, "s3cret", "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
 
 	entries := logs.snapshot()
 	if len(entries) != 1 {
@@ -229,11 +222,10 @@ func TestRejectedWebhookLogCarriesTraceContext(t *testing.T) {
 
 // 解析失敗的錯誤日誌走 core 的 logger.Error，一樣要落在 span 裡
 func TestWebhookDecodeErrorLogCarriesTraceContext(t *testing.T) {
-	config.WebhookSecret = ""
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	w := post(t, "/webhook", `not json`, nil)
+	w := post(t, "", "/webhook", `not json`, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("回應狀態 = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -260,13 +252,12 @@ func (s stubBookkeeping) Group(context.Context, *bookkeepingpb.GroupRequest, ...
 
 // bookkeeping 掛掉時回應仍是 200，span 沒自己標記的話 Grafana 上會看不出這是失敗
 func TestBookkeepingFailureMarksSpanAsError(t *testing.T) {
-	config.WebhookSecret = ""
 	spans := recordSpans(t)
 
 	body := `{"message":{"chat":{"id":1},"text":"/group"}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(body))
 	handler := instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, stubBookkeeping{err: errors.New("connection refused")})
+		return webhook(w, r, stubBookkeeping{err: errors.New("connection refused")}, "")
 	})
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 

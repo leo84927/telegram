@@ -26,7 +26,7 @@ func main() {
 	config.WebhookCertPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
 	config.WebhookKeyPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
 	config.WebhookPort = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
-	config.WebhookSecret = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_SECRET.String()]
+	webhookSecret := coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_SECRET.String()]
 	coreconfig.LoadBasicRabbitMQ()
 	coreconfig.LoadCompleteTopology(rabbitmq.Queue{
 		Name: coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
@@ -48,11 +48,19 @@ func main() {
 		KeyPEM:     config.WebhookKeyPEM,
 		Addr:       config.WebhookPort,
 		GrpcClient: bookkeepingConn,
+		Secret:     webhookSecret,
+	}
+
+	// bot 在這裡建立一次，整個 process 共用；建構時的 getMe 順便驗掉 token
+	sender, err := handle.NewBotSender(config.TelegramToken, config.TelegramChatId)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
 
 	app, err := initialize.New(ctx, &initialize.App{
 		MQWorker: initialize.MQWorker{
-			MsgHandler: handle.MessageHandler,
+			MsgHandler: handle.NewTelegramManager(sender).MessageHandler,
 		},
 		HttpWorker: initialize.HttpWorker{
 			WebhookServer: webhook.Run,
