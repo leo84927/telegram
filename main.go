@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -51,8 +52,12 @@ func main() {
 		Secret:     webhookSecret,
 	}
 
-	// bot 在這裡建立一次，整個 process 共用；建構時的 getMe 順便驗掉 token
-	sender, err := handle.NewBotSender(config.TelegramToken, config.TelegramChatId)
+	/*
+	 * bot 在這裡建立一次，整個 process 共用；建構時的 getMe 順便驗掉 token。
+	 * 失敗就讓 process 起不來，交給 systemd 的 Restart=on-failure —— 不在應用層再實作一次 supervisor。
+	 * client 的 Timeout 不設：單次嘗試的上限由 BotSender 用 context.WithTimeout 控制。
+	 */
+	sender, err := handle.NewBotSender(ctx, &http.Client{}, config.TelegramToken, config.TelegramChatId)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return

@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	buf.build/gen/go/leo84927-proto/scheduler/grpc/go v1.6.2-20260617092915-630856905b4e.1
 	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260707065043-d47284b3e946.1
+	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/leo84927/core v1.7.8
 	github.com/rotisserie/eris v0.5.4
@@ -19,7 +20,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

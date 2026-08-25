@@ -3,11 +3,18 @@ package handle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	mqp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/rabbitmq"
+	"github.com/cenkalti/backoff/v5"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/leo84927/core/rabbitmq"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -205,6 +212,185 @@ func TestFormat(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("Format() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// fakeAPI 起一台假的 Bot API，依序回傳 responses 裡的內容，並記下收到幾次請求
+type fakeAPI struct {
+	mu        sync.Mutex
+	requests  int
+	responses []fakeResponse
+}
+
+type fakeResponse struct {
+	status int
+	body   string
+}
+
+func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	resp := f.responses[min(f.requests, len(f.responses)-1)]
+	f.requests++
+
+	w.WriteHeader(resp.status)
+	fmt.Fprint(w, resp.body)
+}
+
+func (f *fakeAPI) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.requests
+}
+
+// newTestBotSender 指向假的 Bot API，跳過建構時的 getMe（那條路另外測）
+func newTestBotSender(t *testing.T, api *fakeAPI) *BotSender {
+	t.Helper()
+
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	return &BotSender{
+		client:   server.Client(),
+		token:    "test-token",
+		chatID:   1,
+		endpoint: server.URL + "/bot%s/%s",
+	}
+}
+
+const okResponse = `{"ok":true,"result":{}}`
+
+// 5xx 是暫時性失敗，必須重試 —— 這是 #9 刻意留給本張的那格
+func TestBotSenderRetriesOnServerError(t *testing.T) {
+	api := &fakeAPI{responses: []fakeResponse{
+		{http.StatusBadGateway, `{"ok":false,"error_code":502,"description":"Bad Gateway"}`},
+		{http.StatusOK, okResponse},
+	}}
+
+	if err := newTestBotSender(t, api).Send(context.Background(), "hi"); err != nil {
+		t.Fatalf("Send() error = %v, 期望重試後成功", err)
+	}
+	if got := api.count(); got != 2 {
+		t.Errorf("請求次數 = %d, 期望 2", got)
+	}
+}
+
+// 401 是 token 錯，重試三次純屬浪費
+func TestBotSenderDoesNotRetryOnClientError(t *testing.T) {
+	api := &fakeAPI{responses: []fakeResponse{
+		{http.StatusUnauthorized, `{"ok":false,"error_code":401,"description":"Unauthorized"}`},
+	}}
+
+	err := newTestBotSender(t, api).Send(context.Background(), "hi")
+	if err == nil {
+		t.Fatal("Send() error = nil, 期望回傳錯誤")
+	}
+	if got := api.count(); got != 1 {
+		t.Errorf("請求次數 = %d, 期望 1（不可重試的錯誤不該重試）", got)
+	}
+	// unwrapPermanent 要真的解開，否則 eris 只看得到最外層的 PermanentError，堆疊整條消失
+	if permanent := (*backoff.PermanentError)(nil); errors.As(err, &permanent) {
+		t.Errorf("錯誤最外層仍是 *backoff.PermanentError: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Unauthorized") {
+		t.Errorf("錯誤訊息 = %q, 期望保留 telegram 的描述", err.Error())
+	}
+}
+
+// 用完重試次數後仍要回傳錯誤，不能靜靜地當成功
+func TestBotSenderReturnsErrorWhenRetriesExhausted(t *testing.T) {
+	api := &fakeAPI{responses: []fakeResponse{
+		{http.StatusBadGateway, `{"ok":false,"error_code":502,"description":"Bad Gateway"}`},
+	}}
+
+	if err := newTestBotSender(t, api).Send(context.Background(), "hi"); err == nil {
+		t.Fatal("Send() error = nil, 期望重試用完後回傳錯誤")
+	}
+	if got := api.count(); got != sendMaxTries {
+		t.Errorf("請求次數 = %d, 期望 %d", got, sendMaxTries)
+	}
+}
+
+// 啟動時的 getMe 就是 token 驗證：失敗就不該讓服務起來
+func TestNewBotSenderFailsWhenTokenRejected(t *testing.T) {
+	api := &fakeAPI{responses: []fakeResponse{
+		{http.StatusUnauthorized, `{"ok":false,"error_code":401,"description":"Unauthorized"}`},
+	}}
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	sender := &BotSender{client: server.Client(), token: "bad", chatID: 1, endpoint: server.URL + "/bot%s/%s"}
+	if _, err := sender.call(context.Background(), "getMe", nil); err == nil {
+		t.Fatal("getMe error = nil, 期望 token 被拒時回傳錯誤")
+	}
+	if got := api.count(); got != 1 {
+		t.Errorf("請求次數 = %d, 期望 1（啟動時的 getMe 不重試）", got)
+	}
+}
+
+/*
+ * classify 是錯誤分類的全部決策，直接測它比透過 httptest 快得多。
+ * 429 那格特別重要：backoff.RetryAfter 回傳的 *RetryAfterError 不包裝內層錯誤，
+ * 包裝方式一旦寫錯，backoff 就找不到它，telegram 給的 retry_after 會被無視。
+ */
+func TestClassify(t *testing.T) {
+	tests := []struct {
+		name          string
+		resp          *tgbotapi.APIResponse
+		wantPermanent bool
+		wantRetryFor  time.Duration
+	}{
+		{
+			name:          "429 帶 retry_after 改用 telegram 給的秒數",
+			resp:          &tgbotapi.APIResponse{ErrorCode: 429, Description: "Too Many Requests", Parameters: &tgbotapi.ResponseParameters{RetryAfter: 7}},
+			wantPermanent: false,
+			wantRetryFor:  7 * time.Second,
+		},
+		{
+			name:          "429 沒帶 retry_after 就照一般可重試處理",
+			resp:          &tgbotapi.APIResponse{ErrorCode: 429, Description: "Too Many Requests"},
+			wantPermanent: false,
+		},
+		{
+			name:          "400 參數錯不重試",
+			resp:          &tgbotapi.APIResponse{ErrorCode: 400, Description: "Bad Request"},
+			wantPermanent: true,
+		},
+		{
+			name:          "403 被封鎖不重試",
+			resp:          &tgbotapi.APIResponse{ErrorCode: 403, Description: "Forbidden"},
+			wantPermanent: true,
+		},
+		{
+			name:          "5xx 可重試",
+			resp:          &tgbotapi.APIResponse{ErrorCode: 500, Description: "Internal Server Error"},
+			wantPermanent: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := classify(tt.resp)
+
+			permanent := (*backoff.PermanentError)(nil)
+			if got := errors.As(err, &permanent); got != tt.wantPermanent {
+				t.Errorf("是否為 Permanent = %v, want %v", got, tt.wantPermanent)
+			}
+
+			retryAfter := (*backoff.RetryAfterError)(nil)
+			if errors.As(err, &retryAfter) {
+				if retryAfter.Duration != tt.wantRetryFor {
+					t.Errorf("retry after = %v, want %v", retryAfter.Duration, tt.wantRetryFor)
+				}
+			} else if tt.wantRetryFor != 0 {
+				t.Errorf("錯誤鏈裡找不到 *backoff.RetryAfterError: %v", err)
+			}
+
+			if !strings.Contains(err.Error(), tt.resp.Description) {
+				t.Errorf("錯誤訊息 = %q, 期望保留 telegram 的描述 %q", err.Error(), tt.resp.Description)
 			}
 		})
 	}
