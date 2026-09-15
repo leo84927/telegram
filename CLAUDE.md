@@ -10,15 +10,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 架構
 ```
-main.go                     ← 從 Redis 載入設定、建立 RabbitMQ topology 與 bookkeeping gRPC client
-config/common.go            ← 設定值的全域變數
+main.go                     ← coreconfig.Load 讀設定、驗 token、組 BotSender / Worker / WebhookServer
+config/common.go            ← TELEGRAM:* 設定鍵的具名形狀（無全域變數）
 
-handle/message_handler.go   ← RabbitMQ consumer 的進入點
-handle/telegram_handler.go  ← TelegramManager：解析 Envelope、格式化訊息、呼叫 Bot API 發送
-handle/webhook.go           ← 啟動 HTTPS server
+handle/message_handler.go   ← Worker：RabbitMQ consumer 的進入點，解析 Envelope、同步送出、錯誤往上回傳
+handle/format.go            ← format：Envelope → 字串的純函式（EnvelopeType 分派、TWD 取倒數）
+handle/sender.go            ← Sender 介面與 BotSender：自己發 ctx-aware 請求、重試與錯誤分類
+handle/webhook.go           ← 啟動 HTTPS server、建立 bookkeeping gRPC client
 
 router/router.go            ← webhook / health 路由、secret 驗證、instrument（開 span）、指令分派
 ```
 
-設定不由 `config` 的 `init()` 載入，而是在 `main` 依序賦值——順序有意義：`InitFromRedis` 先把
-`TELEGRAM:*` 與 `GLOBAL:*` 讀進 `coreconfig.EnvMap`，之後才能取出 topology 與 bookkeeping sock path。
+## 日誌與 trace 關聯
+
+接收端的日誌一律要帶 handler 收到的 `ctx`（`slog.InfoContext` / `logger.Error(ctx, …)`），
+否則寫不出 `trace_id` / `span_id`，在 Grafana 上就和 span 脫鉤。詳見 `CONTEXT.md` 的系統級不變條件
+「trace 跨服務不斷開」。
+
+## 設定鍵
+
+| 鍵 | 用途 |
+|---|---|
+| `TELEGRAM_SERVICE_NAME` | 服務名稱 |
+| `TELEGRAM_TOKEN` | Bot API token，啟動時以 `getMe` 驗證 |
+| `TELEGRAM_CHAT_ID` | 告警送達的 chat |
+| `TELEGRAM_RABBITMQ_QUEUE` | 訂閱的 queue 名稱 |
+| `TELEGRAM_RABBITMQ_KEY` | routing key |
+| `TELEGRAM_WEBHOOK_CERT_PEM` | webhook HTTPS 憑證 |
+| `TELEGRAM_WEBHOOK_KEY_PEM` | webhook HTTPS 私鑰 |
+| `TELEGRAM_WEBHOOK_PORT` | webhook 監聽地址 |
+| `TELEGRAM_WEBHOOK_SECRET` | 驗證 telegram 來源的 secret token，**空字串代表刻意不啟用驗證** |
+
+## 測試
+
+```sh
+go test ./... -race -v -count=1
+golangci-lint run ./...
+```

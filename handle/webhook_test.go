@@ -2,12 +2,14 @@ package handle
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"buf.build/gen/go/leo84927-proto/scheduler/grpc/go/bookkeeping/bookkeepinggrpc"
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
@@ -18,6 +20,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"telegram/config"
 )
 
 /*
@@ -167,5 +171,37 @@ func TestBookkeepingCallInjectsTraceparent(t *testing.T) {
 	}
 	if !strings.Contains(traceparent, span.SpanContext().SpanID().String()) {
 		t.Errorf("traceparent = %q, 期望含呼叫端 span id %v", traceparent, span.SpanContext().SpanID())
+	}
+}
+
+/*
+ * 進來的請求，其 ctx 必須以 Run 收到的 ctx 為根。
+ *
+ * net/http 的 Serve 以 BaseContext 為每則請求的 ctx 根源，BaseContext 為 nil 時預設是
+ * context.Background()。少了這條線，SIGTERM 砍不到進行中的請求，它們會一路跑到 Shutdown 的
+ * 5s 上限為止——而那正是這條路徑上唯一還沒有被取消訊號串起來的地方。
+ *
+ * 打的是 newServer 而不是真的起一個 TLS server：要驗的是「這條線有沒有接上」，
+ * 真的握手一次只會換來一個綁 port 的 flaky 測試。
+ */
+func TestRequestContextDescendsFromRunContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	server := NewWebhookServer(config.Config{}, nil).newServer(ctx, tls.Certificate{})
+	if server.BaseContext == nil {
+		t.Fatal("BaseContext 是 nil，請求的 ctx 會來自 context.Background()，關機訊號到不了 handler")
+	}
+
+	base := server.BaseContext(nil)
+	if base.Err() != nil {
+		t.Fatalf("BaseContext 回傳的 ctx 已經被取消: %v", base.Err())
+	}
+
+	cancel()
+
+	select {
+	case <-base.Done():
+	case <-time.After(time.Second):
+		t.Error("Run 的 ctx 取消後，請求的 ctx 沒有跟著結束")
 	}
 }

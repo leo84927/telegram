@@ -2,6 +2,7 @@ package handle
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -36,11 +37,7 @@ func (r *ctxRecorder) Handle(ctx context.Context, record slog.Record) error {
 func (r *ctxRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
 func (r *ctxRecorder) WithGroup(string) slog.Handler      { return r }
 
-/*
- * entriesFor 只取指定訊息的日誌
- * MessageHandler 是用 goroutine 送訊息，那條 goroutine 會在測試結束後才寫日誌，
- * 而 slog.Default() 是全域的，不篩選會讓斷言隨時序浮動
- */
+// entriesFor 只取指定訊息的日誌，其餘（例如 core 記的錯誤）不進斷言
 func (r *ctxRecorder) entriesFor(message string) []recordedEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -94,13 +91,28 @@ func ctxWithSpan() (context.Context, trace.SpanContext) {
 	return trace.ContextWithSpanContext(context.Background(), spanContext), spanContext
 }
 
-// MessageHandler 的日誌必須沿用 consumer 傳進來的 context，否則 Grafana 上的日誌對不到任何一次訊息處理
-func TestMessageHandlerLogsCarryTraceContext(t *testing.T) {
+/*
+ * senderStub 是 Sender 唯一用得上替身的場合：這幾條測試觀察的是日誌與回傳值，
+ * 一次真實的 Bot API 往返在這裡看不出任何東西。
+ */
+type senderStub struct {
+	texts []string
+	err   error
+}
+
+func (s *senderStub) Send(_ context.Context, text string) error {
+	s.texts = append(s.texts, text)
+	return s.err
+}
+
+// Handle 的日誌必須沿用 consumer 傳進來的 context，否則 Grafana 上的日誌對不到任何一次訊息處理
+func TestHandleLogsCarryTraceContext(t *testing.T) {
 	recorder := useRecorder(t)
 	ctx, want := ctxWithSpan()
 
-	if _, err := MessageHandler(ctx, rabbitmq.Message{Body: []byte(`{}`)}, nil); err != nil {
-		t.Fatalf("MessageHandler() error = %v, 期望 nil", err)
+	worker := NewWorker(&senderStub{})
+	if err := worker.Handle(ctx, rabbitmq.Message{Body: []byte(`{}`)}, nil); err != nil {
+		t.Fatalf("Handle() error = %v, 期望 nil", err)
 	}
 
 	for _, message := range []string{
@@ -112,15 +124,27 @@ func TestMessageHandlerLogsCarryTraceContext(t *testing.T) {
 	}
 }
 
-// 訊息格式化失敗的錯誤日誌同樣要能對回同一條 trace
-func TestBuildMessageErrorLogCarriesTraceContext(t *testing.T) {
-	recorder := useRecorder(t)
-	ctx, want := ctxWithSpan()
+// 解不出 Envelope 就沒有可送的對象，回 error 讓 core 否認這則訊息
+func TestHandleRejectsUnparsableEnvelope(t *testing.T) {
+	sender := &senderStub{}
+	worker := NewWorker(sender)
 
-	if _, err := buildMessage(ctx, []byte("not a json")); err == nil {
-		t.Fatal("buildMessage() error = nil, 期望解析失敗")
+	if err := worker.Handle(context.Background(), rabbitmq.Message{Body: []byte("not a json")}, nil); err == nil {
+		t.Fatal("Handle() error = nil, 期望解析失敗")
 	}
 
-	const message = "build message unmarshal envelope json failed"
-	assertSpan(t, recorder.entriesFor(message), message, want)
+	if len(sender.texts) != 0 {
+		t.Errorf("送出 %d 則訊息, 期望 0 則", len(sender.texts))
+	}
+}
+
+// 送出失敗的錯誤要原樣往上傳，core 才會把 span 標為 Error 並否認訊息
+func TestHandleReturnsSenderError(t *testing.T) {
+	want := errors.New("send failed")
+	worker := NewWorker(&senderStub{err: want})
+
+	err := worker.Handle(context.Background(), rabbitmq.Message{Body: []byte(`{}`)}, nil)
+	if !errors.Is(err, want) {
+		t.Fatalf("Handle() error = %v, 期望 %v", err, want)
+	}
 }

@@ -4,27 +4,45 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net"
 	"net/http"
-	"telegram/router"
+	"time"
 
 	"github.com/rotisserie/eris"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/leo84927/core/logger"
+	"telegram/config"
+	"telegram/router"
 )
+
+// 關機時等進行中的 webhook 請求做完的上限
+const shutdownTimeout = 5 * time.Second
 
 // 建立 Webhook(HTTPS) Server 所需的參數
 type WebhookServer struct {
-	CertPEM    string // PEM 格式的憑證
-	KeyPEM     string // PEM 格式的私鑰
-	Addr       string // 監聽的地址，例如 ":8443"
-	GrpcClient *grpc.ClientConn
+	certPEM    string // PEM 格式的憑證
+	keyPEM     string // PEM 格式的私鑰
+	addr       string // 監聽的地址，例如 ":8443"
+	secret     string // 驗證 telegram 來源的 secret token，空字串代表不驗
+	grpcClient *grpc.ClientConn
+}
+
+func NewWebhookServer(cfg config.Config, grpcClient *grpc.ClientConn) *WebhookServer {
+	return &WebhookServer{
+		certPEM:    cfg.WebhookCertPEM,
+		keyPEM:     cfg.WebhookKeyPEM,
+		addr:       cfg.WebhookPort,
+		secret:     cfg.WebhookSecret,
+		grpcClient: grpcClient,
+	}
 }
 
 /*
- * NewBookkeepingClient 建立連往 bookkeeping 的 gRPC client
- * StatsHandler 是這條同步呼叫在 trace 上不斷開的唯一關鍵：它把 webhook span 的 traceparent
- * 注入 gRPC metadata，bookkeeping 端才接得上同一條 trace（見 CLAUDE.md 的「日誌與 trace 關聯」）
+ * 建立連往 bookkeeping 的 gRPC client
+ * StatsHandler 把 webhook span 的 traceparent 注入 gRPC metadata，bookkeeping 端才接得上同一條 trace
  */
 func NewBookkeepingClient(sockFilePath string) (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(
@@ -42,29 +60,28 @@ func NewBookkeepingClient(sockFilePath string) (*grpc.ClientConn, error) {
 // 啟動 Webhook(HTTPS) Server
 func (ws *WebhookServer) Run(ctx context.Context) error {
 	// 解析憑證和私鑰
-	cert, err := tls.X509KeyPair([]byte(ws.CertPEM), []byte(ws.KeyPEM))
+	cert, err := tls.X509KeyPair([]byte(ws.certPEM), []byte(ws.keyPEM))
 	if err != nil {
 		return eris.Wrap(err, "load webhook certificate failed")
 	}
 
-	// 建立 Webhook(HTTPS) Server，並使用自訂的 router
-	server := &http.Server{
-		Addr:    ws.Addr,
-		Handler: router.New(ws.GrpcClient),
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-		},
-	}
+	server := ws.newServer(ctx, cert)
 
 	// 在 context 被取消時關閉 server
 	go func() {
 		<-ctx.Done()
-		server.Shutdown(context.Background())
+
+		// 不沿用 ctx —— 它已經取消了，Shutdown 會立刻放棄等待，進行中的請求當場斷線。
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Error(ctx, "webhook server shutdown failed", err)
+		}
 	}()
 
 	// 手動建立 TLS listener
-	ln, err := tls.Listen("tcp", ws.Addr, server.TLSConfig)
+	ln, err := tls.Listen("tcp", ws.addr, server.TLSConfig)
 	if err != nil {
 		return eris.Wrap(err, "failed to create TLS listener")
 	}
@@ -76,4 +93,24 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 	}
 
 	return err
+}
+
+/*
+ * 建立 Webhook(HTTPS) Server，並使用自訂的 router
+ *
+ * BaseContext 是每一則進來的請求的 ctx 根源。不接上的話，handler 手上的 ctx 與關機訊號毫無關係 ——
+ * SIGTERM 砍不到進行中的請求，它們只會一路跑到 Shutdown 的上限為止。
+ *
+ * 接上之後，關機時進行中的請求隨 ctx 被砍，靠 Telegram 自己的重送補回。
+ */
+func (ws *WebhookServer) newServer(ctx context.Context, cert tls.Certificate) *http.Server {
+	return &http.Server{
+		Addr:        ws.addr,
+		Handler:     router.New(ws.grpcClient, ws.secret),
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		},
+	}
 }

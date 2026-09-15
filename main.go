@@ -3,66 +3,88 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"telegram/config"
-	"telegram/handle"
+	"time"
 
 	env "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/env"
 	coreconfig "github.com/leo84927/core/config"
 	"github.com/leo84927/core/initialize"
-	"github.com/leo84927/core/rabbitmq"
+
+	"telegram/config"
+	"telegram/handle"
 )
 
+const botAPITimeout = 5 * time.Second
+
+func newBotClient() *http.Client {
+	return &http.Client{Timeout: botAPITimeout}
+}
+
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// os.Exit 不跑 defer，所以整個啟動流程收在 run 裡，讓 Close 有機會配對執行
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	coreconfig.InitFromRedis(ctx, "TELEGRAM")
-	coreconfig.ServiceName = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_SERVICE_NAME.String()]
-	config.TelegramToken = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_TOKEN.String()]
-	config.TelegramChatId = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_CHAT_ID.String()]
-	config.WebhookCertPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM.String()]
-	config.WebhookKeyPEM = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM.String()]
-	config.WebhookPort = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT.String()]
-	config.WebhookSecret = coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_WEBHOOK_SECRET.String()]
-	coreconfig.LoadBasicRabbitMQ()
-	coreconfig.LoadCompleteTopology(rabbitmq.Queue{
-		Name: coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE.String()],
-		Keys: []string{
-			coreconfig.EnvMap[env.TelegramEnvKey_TELEGRAM_RABBITMQ_KEY.String()],
+	settings, err := coreconfig.Load(ctx, coreconfig.Spec{
+		Prefix:         "TELEGRAM",
+		ServiceNameKey: env.TelegramEnvKey_TELEGRAM_SERVICE_NAME,
+		Queue: &coreconfig.QueueKeys{
+			NameKey:    env.TelegramEnvKey_TELEGRAM_RABBITMQ_QUEUE,
+			RoutingKey: env.TelegramEnvKey_TELEGRAM_RABBITMQ_KEY,
+		},
+		ServiceKeys: []fmt.Stringer{
+			env.TelegramEnvKey_TELEGRAM_TOKEN,
+			env.TelegramEnvKey_TELEGRAM_CHAT_ID,
+			env.TelegramEnvKey_TELEGRAM_WEBHOOK_CERT_PEM,
+			env.TelegramEnvKey_TELEGRAM_WEBHOOK_KEY_PEM,
+			env.TelegramEnvKey_TELEGRAM_WEBHOOK_PORT,
+			env.TelegramEnvKey_TELEGRAM_WEBHOOK_SECRET,
 		},
 	})
-
-	bookkeepingConn, err := handle.NewBookkeepingClient(
-		coreconfig.EnvMap[env.GlobalEnvKey_GLOBAL_BOOKKEEPING_SOCK_FILE_PATH.String()],
-	)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		return err
 	}
 
-	webhook := &handle.WebhookServer{
-		CertPEM:    config.WebhookCertPEM,
-		KeyPEM:     config.WebhookKeyPEM,
-		Addr:       config.WebhookPort,
-		GrpcClient: bookkeepingConn,
+	cfg := config.New(settings.Service)
+
+	sender := handle.NewBotSender(newBotClient(), cfg)
+	if err := sender.ValidateToken(ctx); err != nil {
+		return err
 	}
 
-	app, err := initialize.New(ctx, &initialize.App{
+	bookkeepingConn, err := handle.NewBookkeepingClient(settings.GrpcSockPath)
+	if err != nil {
+		return err
+	}
+
+	// &handle.Worker
+	worker := handle.NewWorker(sender)
+	webhook := handle.NewWebhookServer(cfg, bookkeepingConn)
+
+	app, err := initialize.New(ctx, settings, &initialize.App{
 		MQWorker: initialize.MQWorker{
-			MsgHandler: handle.MessageHandler,
+			MsgHandler: worker.Handle,
 		},
 		HttpWorker: initialize.HttpWorker{
 			WebhookServer: webhook.Run,
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		return err
 	}
 	defer app.Close(ctx)
 
 	app.Run(ctx)
+
+	return nil
 }

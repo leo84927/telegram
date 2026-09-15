@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"telegram/config"
+	"time"
 
 	"buf.build/gen/go/leo84927-proto/scheduler/grpc/go/bookkeeping/bookkeepinggrpc"
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
@@ -21,14 +22,23 @@ import (
 	"google.golang.org/grpc"
 )
 
-// 建立自訂的 router，並把 bookkeeping gRPC client 注入給 webhook handler
-func New(bookkeepingConn *grpc.ClientConn) *http.ServeMux {
+/*
+ * 呼叫 bookkeeping 的 deadline。
+ */
+const bookkeepingTimeout = 5 * time.Second
+
+/*
+ * 建立自訂的 router，並把 gRPC client 與 webhook secret 注入給 handler
+ *
+ * secret 空字串是合法值，代表刻意不啟用驗證。
+ */
+func New(bookkeepingConn *grpc.ClientConn, secret string) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// health 不套 instrument：若未來部署健康檢查頻率高，開 span 會灌爆 trace
 	mux.HandleFunc("POST /health", health)
 	mux.Handle("POST /webhook", instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn))
+		return webhook(w, r, bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn), secret)
 	}))
 
 	return mux
@@ -81,23 +91,12 @@ func instrument(handler func(http.ResponseWriter, *http.Request) int) http.Handl
 	})
 }
 
-// 比對 telegram 帶來的 secret token header
-func authorizedSecret(got string) bool {
-	// 未設定 WebhookSecret 時放行，避免設定 secret 前直接中斷既有 webhook
-	if config.WebhookSecret == "" {
-		return true
-	}
-
-	// 定時比較，避免 timing attack 洩漏 secret
-	return subtle.ConstantTimeCompare([]byte(got), []byte(config.WebhookSecret)) == 1
-}
-
-func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient) int {
+func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient, secret string) int {
 	// 日誌要帶 ctx 才會有 trace_id / span_id（見 CLAUDE.md 的「日誌與 trace 關聯」）
 	ctx := r.Context()
 
 	// 驗證 telegram 帶來的 secret token header
-	if !authorizedSecret(r.Header.Get("X-Telegram-Bot-Api-Secret-Token")) {
+	if !authorizedSecret(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"), secret) {
 		slog.WarnContext(
 			ctx,
 			"webhook rejected: invalid secret token",
@@ -137,7 +136,10 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 	case "/hello":
 		replyJSON(w, update.Message.Chat.ID, "hello world")
 	case "/group":
-		resp, err := bk.Group(ctx, &bookkeepingpb.GroupRequest{})
+		callCtx, cancel := context.WithTimeout(ctx, bookkeepingTimeout)
+		defer cancel()
+
+		resp, err := bk.Group(callCtx, &bookkeepingpb.GroupRequest{})
 		if err != nil {
 			logger.Error(ctx, "query bookkeeping group failed", err)
 			// 回應仍是 200（錯誤訊息本身就是要回給使用者的內容），span 不自己標記的話，
@@ -159,6 +161,19 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 	}
 
 	return http.StatusOK
+}
+
+/*
+ * 比對 telegram 帶來的 secret token header。
+ */
+func authorizedSecret(got, want string) bool {
+	// want 未設定時放行，避免設定 secret 前直接中斷既有 webhook
+	if want == "" {
+		return true
+	}
+
+	// 定時比較，避免 timing attack 洩漏 secret
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 /*

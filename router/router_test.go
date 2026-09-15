@@ -9,8 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"telegram/config"
+	"time"
 
 	bookkeepingpb "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/bookkeeping"
 	"go.opentelemetry.io/otel"
@@ -38,9 +37,8 @@ func TestAuthorizedSecret(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config.WebhookSecret = tt.secret
-			if got := authorizedSecret(tt.got); got != tt.want {
-				t.Errorf("authorizedSecret(%q) with secret %q = %v, want %v",
+			if got := authorizedSecret(tt.got, tt.secret); got != tt.want {
+				t.Errorf("authorizedSecret(%q, %q) = %v, want %v",
 					tt.got, tt.secret, got, tt.want)
 			}
 		})
@@ -117,7 +115,8 @@ func attrs(span sdktrace.ReadOnlySpan) map[attribute.Key]attribute.Value {
 	return got
 }
 
-func post(t *testing.T, path, body string, header map[string]string) *httptest.ResponseRecorder {
+// secret 隨呼叫傳入，不再是測試之間互相污染的全域變數
+func post(t *testing.T, path, body, secret string, header map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
@@ -126,16 +125,15 @@ func post(t *testing.T, path, body string, header map[string]string) *httptest.R
 	}
 
 	w := httptest.NewRecorder()
-	New(nil).ServeHTTP(w, req)
+	New(nil, secret).ServeHTTP(w, req)
 
 	return w
 }
 
 func TestWebhookRequestRecordsSpan(t *testing.T) {
-	config.WebhookSecret = ""
 	spans := recordSpans(t)
 
-	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
+	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, "", nil)
 
 	ended := spans.Ended()
 	if len(ended) != 1 {
@@ -163,10 +161,9 @@ func TestWebhookRequestRecordsSpan(t *testing.T) {
 }
 
 func TestRejectedWebhookRequestRecordsStatusOnSpan(t *testing.T) {
-	config.WebhookSecret = "s3cret"
 	spans := recordSpans(t)
 
-	w := post(t, "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
+	w := post(t, "/webhook", `{}`, "s3cret", map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("回應狀態 = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
@@ -185,7 +182,7 @@ func TestRejectedWebhookRequestRecordsStatusOnSpan(t *testing.T) {
 func TestHealthRequestRecordsNoSpan(t *testing.T) {
 	spans := recordSpans(t)
 
-	post(t, "/health", "", nil)
+	post(t, "/health", "", "", nil)
 
 	if ended := spans.Ended(); len(ended) != 0 {
 		t.Errorf("span 數量 = %d, want 0", len(ended))
@@ -193,11 +190,10 @@ func TestHealthRequestRecordsNoSpan(t *testing.T) {
 }
 
 func TestWebhookLogsCarryTraceContext(t *testing.T) {
-	config.WebhookSecret = ""
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, nil)
+	post(t, "/webhook", `{"message":{"chat":{"id":1},"text":"/hello"}}`, "", nil)
 
 	entries := logs.snapshot()
 	if len(entries) == 0 {
@@ -212,11 +208,10 @@ func TestWebhookLogsCarryTraceContext(t *testing.T) {
 
 // 拒絕未授權請求正是需要追查來源的場合，日誌一樣要帶 trace
 func TestRejectedWebhookLogCarriesTraceContext(t *testing.T) {
-	config.WebhookSecret = "s3cret"
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	post(t, "/webhook", `{}`, map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
+	post(t, "/webhook", `{}`, "s3cret", map[string]string{"X-Telegram-Bot-Api-Secret-Token": "wrong"})
 
 	entries := logs.snapshot()
 	if len(entries) != 1 {
@@ -229,11 +224,10 @@ func TestRejectedWebhookLogCarriesTraceContext(t *testing.T) {
 
 // 解析失敗的錯誤日誌走 core 的 logger.Error，一樣要落在 span 裡
 func TestWebhookDecodeErrorLogCarriesTraceContext(t *testing.T) {
-	config.WebhookSecret = ""
 	recordSpans(t)
 	logs := recordLogs(t)
 
-	w := post(t, "/webhook", `not json`, nil)
+	w := post(t, "/webhook", `not json`, "", nil)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("回應狀態 = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -245,28 +239,42 @@ func TestWebhookDecodeErrorLogCarriesTraceContext(t *testing.T) {
 	}
 }
 
-// stubBookkeeping 讓 /group 的失敗分支可以在不連 bookkeeping 的情況下測
+// stubBookkeeping 讓 /group 的分支可以在不連 bookkeeping 的情況下測，順便留下呼叫時的 deadline
 type stubBookkeeping struct {
 	err error
+
+	mu sync.Mutex
+	// 下游實際拿到的剩餘預算，量在 stub 裡才不會把呼叫端的組裝時間算進去
+	remaining   time.Duration
+	hasDeadline bool
 }
 
-func (s stubBookkeeping) Hello(context.Context, *bookkeepingpb.HelloRequest, ...grpc.CallOption) (*bookkeepingpb.HelloResponse, error) {
+func (s *stubBookkeeping) Hello(context.Context, *bookkeepingpb.HelloRequest, ...grpc.CallOption) (*bookkeepingpb.HelloResponse, error) {
 	return nil, s.err
 }
 
-func (s stubBookkeeping) Group(context.Context, *bookkeepingpb.GroupRequest, ...grpc.CallOption) (*bookkeepingpb.GroupResponse, error) {
-	return nil, s.err
+func (s *stubBookkeeping) Group(ctx context.Context, _ *bookkeepingpb.GroupRequest, _ ...grpc.CallOption) (*bookkeepingpb.GroupResponse, error) {
+	deadline, ok := ctx.Deadline()
+
+	s.mu.Lock()
+	s.hasDeadline = ok
+	s.remaining = time.Until(deadline)
+	s.mu.Unlock()
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return &bookkeepingpb.GroupResponse{}, nil
 }
 
 // bookkeeping 掛掉時回應仍是 200，span 沒自己標記的話 Grafana 上會看不出這是失敗
 func TestBookkeepingFailureMarksSpanAsError(t *testing.T) {
-	config.WebhookSecret = ""
 	spans := recordSpans(t)
 
-	body := `{"message":{"chat":{"id":1},"text":"/group"}}`
-	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(groupCommandBody))
 	handler := instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, stubBookkeeping{err: errors.New("connection refused")})
+		return webhook(w, r, &stubBookkeeping{err: errors.New("connection refused")}, "")
 	})
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -313,5 +321,35 @@ func TestPanickingHandlerMarksSpanAsError(t *testing.T) {
 	}
 	if v := attrs(span)[semconv.HTTPResponseStatusCodeKey]; v.AsInt64() != http.StatusInternalServerError {
 		t.Errorf("http.response.status_code = %d, want %d", v.AsInt64(), http.StatusInternalServerError)
+	}
+}
+
+const groupCommandBody = `{"message":{"chat":{"id":1},"text":"/group"}}`
+
+/*
+ * 呼叫端沒設 deadline 的話，一個沒回應的 bookkeeping 會把 webhook 請求無限期拖住，
+ * 而 gRPC 是靠呼叫端的 deadline 隨 metadata 傳到下游，兩端的上限都來自這裡
+ */
+func TestBookkeepingCallCarriesDeadline(t *testing.T) {
+	recordSpans(t)
+
+	stub := &stubBookkeeping{}
+	handler := instrument(func(w http.ResponseWriter, r *http.Request) int {
+		return webhook(w, r, stub, "")
+	})
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(groupCommandBody)))
+
+	stub.mu.Lock()
+	remaining, hasDeadline := stub.remaining, stub.hasDeadline
+	stub.mu.Unlock()
+
+	if !hasDeadline {
+		t.Fatal("bookkeeping 呼叫沒有 deadline，下游拿不到任何上限")
+	}
+
+	// 上界證明 deadline 來自 bookkeepingTimeout，下界證明它不是某個殘存的小預算
+	if remaining > bookkeepingTimeout || remaining < bookkeepingTimeout-time.Second {
+		t.Errorf("下游拿到的剩餘預算 = %v, 期望接近 %v", remaining, bookkeepingTimeout)
 	}
 }
