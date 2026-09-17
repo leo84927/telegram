@@ -8,7 +8,7 @@ import (
 	"github.com/rotisserie/eris"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/leo84927/core/rabbitmq"
+	"github.com/leo84927/core/v2/rabbitmq"
 )
 
 /*

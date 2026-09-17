@@ -14,7 +14,7 @@ import (
 	mqp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/rabbitmq"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/leo84927/core/rabbitmq"
+	"github.com/leo84927/core/v2/rabbitmq"
 
 	"telegram/config"
 )

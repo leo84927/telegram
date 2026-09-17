@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/leo84927/core/logger"
+	"github.com/leo84927/core/v2/logger"
 	"telegram/config"
 	"telegram/router"
 )

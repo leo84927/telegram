@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/leo84927/core/rabbitmq"
+	"github.com/leo84927/core/v2/rabbitmq"
 	"go.opentelemetry.io/otel/trace"
 )
 
