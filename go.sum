@@ -39,6 +39,8 @@ github.com/klauspost/cpuid/v2 v2.2.10 h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2
 github.com/klauspost/cpuid/v2 v2.2.10/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/leo84927/core/v2 v2.0.2 h1:8fNjnyLYfoU7kFjK2DQovetg6CKHNIVACzeuU9KPPDw=
 github.com/leo84927/core/v2 v2.0.2/go.mod h1:f42bNcEd1ZnqIjdmu+xC5z3CRvZYqkx0HM7Q5/xy3ew=
+github.com/leo84927/core/v2 v2.0.3 h1:pRp5zgHMv8bGJIOHrZ9/r0MBIeOmkDCdHnIBS6+ovYk=
+github.com/leo84927/core/v2 v2.0.3/go.mod h1:f42bNcEd1ZnqIjdmu+xC5z3CRvZYqkx0HM7Q5/xy3ew=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
 github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o4kU=
