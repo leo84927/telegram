@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata"
+
 	env "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/env"
 	coreconfig "github.com/leo84927/core/v2/config"
 	"github.com/leo84927/core/v2/initialize"
