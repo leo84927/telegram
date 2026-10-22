@@ -148,7 +148,7 @@ func exchangeRateMessage(t *testing.T, rate *erp.ExchangeRate) rabbitmq.Message 
 // 送出
 // ─────────────────────────────────────────────
 
-// 一則告警走完 worker → format → BotSender，落在 Bot API 上的就是 sendMessage 與格式化後的文字
+// 一則通知走完 worker → format → BotSender，落在 Bot API 上的就是 sendMessage 與格式化後的文字
 func TestHandleSendsFormattedMessage(t *testing.T) {
 	stub := newBotStub(t, respondJSON(http.StatusOK, `{"ok":true,"result":{}}`))
 	worker := NewWorker(newTestSender(stub))
@@ -179,7 +179,7 @@ func TestHandleSendsFormattedMessage(t *testing.T) {
 
 /*
  * 送不出去就必須回 error —— 這是整張票的核心：
- * 原本是 logger.Error 之後 return，訊息照樣被 core 當成處理完成而 Ack，告警就此消失。
+ * 原本是 logger.Error 之後 return，訊息照樣被 core 當成處理完成而 Ack，通知就此消失。
  *
  * 同時釘住 5xx 可重試與重試次數上限。
  */

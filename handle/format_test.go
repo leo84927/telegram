@@ -53,7 +53,7 @@ func TestFormat(t *testing.T) {
 			want: "USD/TWD : 0.031",
 		},
 		{
-			name: "錯誤告警的 Data 本身就是要給人看的文字",
+			name: "錯誤通知的 Data 本身就是要給人看的文字",
 			envelope: &mqp.Envelope{
 				Type: mqp.EnvelopeType_TELEGRAM_ERROR,
 				Data: "quote batch failed: responded 500",
