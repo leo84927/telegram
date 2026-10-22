@@ -12,7 +12,7 @@ const defaultAPIURL = tgbotapi.APIEndpoint
 
 type Config struct {
 	Token  string
-	ChatID string
+	ChatID string // 使用者與 bot 的私人對話，值即使用者的 user id；推送目的地，也是 webhook 唯一放行的 chat
 	APIURL string // Bot API 端點格式，測試時指向 httptest
 
 	WebhookCertPEM string

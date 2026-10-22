@@ -27,6 +27,7 @@ type WebhookServer struct {
 	keyPEM     string // PEM 格式的私鑰
 	addr       string // 監聽的地址，例如 ":8443"
 	secret     string // 驗證 telegram 來源的 secret token，空字串代表不驗
+	chatID     string // 使用者的私人對話（即使用者的 user id），webhook 只接受從這裡傳來的指令
 	grpcClient *grpc.ClientConn
 }
 
@@ -36,6 +37,7 @@ func NewWebhookServer(cfg config.Config, grpcClient *grpc.ClientConn) *WebhookSe
 		keyPEM:     cfg.WebhookKeyPEM,
 		addr:       cfg.WebhookPort,
 		secret:     cfg.WebhookSecret,
+		chatID:     cfg.ChatID,
 		grpcClient: grpcClient,
 	}
 }
@@ -106,7 +108,7 @@ func (ws *WebhookServer) Run(ctx context.Context) error {
 func (ws *WebhookServer) newServer(ctx context.Context, cert tls.Certificate) *http.Server {
 	return &http.Server{
 		Addr:        ws.addr,
-		Handler:     router.New(ws.grpcClient, ws.secret),
+		Handler:     router.New(ws.grpcClient, ws.secret, ws.chatID),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},

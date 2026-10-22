@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # telegram
 負責所有與 Telegram Bot 相關的任務：
-- 消費 RabbitMQ 訊息並轉發至 Telegram chat
-- 接收 Telegram webhook
+- 消費 RabbitMQ 訊息並推送到使用者的私人對話
+- 接收 Telegram webhook，只回應使用者私人對話傳來的指令
 - 透過 gRPC 呼叫 `bookkeeping`
 
 ## 架構
@@ -18,7 +18,7 @@ handle/format.go            ← format：Envelope → 字串的純函式（Envel
 handle/sender.go            ← Sender 介面與 BotSender：自己發 ctx-aware 請求、重試與錯誤分類
 handle/webhook.go           ← 啟動 HTTPS server、建立 bookkeeping gRPC client
 
-router/router.go            ← webhook / health 路由、secret 驗證、instrument（開 span）、指令分派
+router/router.go            ← webhook / health 路由、secret 驗證、只放行使用者私人對話、instrument（開 span）、指令分派
 ```
 
 ## 日誌與 trace 關聯
@@ -33,7 +33,7 @@ router/router.go            ← webhook / health 路由、secret 驗證、instru
 |---|---|
 | `TELEGRAM_SERVICE_NAME` | 服務名稱 |
 | `TELEGRAM_TOKEN` | Bot API token，啟動時以 `getMe` 驗證 |
-| `TELEGRAM_CHAT_ID` | 告警送達的 chat |
+| `TELEGRAM_CHAT_ID` | 使用者與 bot 的私人對話，值即使用者的 Telegram user id（正數）。從 MQ 收到的訊息一律推送到這裡（Envelope 不帶 chat id），webhook 也只回應從這裡傳來的指令；**空字串代表全部擋下**（與 secret 相反） |
 | `TELEGRAM_RABBITMQ_QUEUE` | 訂閱的 queue 名稱 |
 | `TELEGRAM_RABBITMQ_KEY` | routing key |
 | `TELEGRAM_WEBHOOK_CERT_PEM` | webhook HTTPS 憑證 |

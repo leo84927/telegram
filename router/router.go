@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,17 +29,17 @@ import (
 const bookkeepingTimeout = 5 * time.Second
 
 /*
- * 建立自訂的 router，並把 gRPC client 與 webhook secret 注入給 handler
+ * 建立自訂的 router，並把 gRPC client、webhook secret 與使用者私人對話的 chat id 注入給 handler
  *
- * secret 空字串是合法值，代表刻意不啟用驗證。
+ * secret 空字串是合法值，代表刻意不啟用驗證；chatID 沒有這個例外，空字串等於全部擋下。
  */
-func New(bookkeepingConn *grpc.ClientConn, secret string) *http.ServeMux {
+func New(bookkeepingConn *grpc.ClientConn, secret, chatID string) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// health 不套 instrument：若未來部署健康檢查頻率高，開 span 會灌爆 trace
 	mux.HandleFunc("POST /health", health)
 	mux.Handle("POST /webhook", instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn), secret)
+		return webhook(w, r, bookkeepinggrpc.NewBookkeepingServiceClient(bookkeepingConn), secret, chatID)
 	}))
 
 	return mux
@@ -91,7 +92,7 @@ func instrument(handler func(http.ResponseWriter, *http.Request) int) http.Handl
 	})
 }
 
-func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient, secret string) int {
+func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.BookkeepingServiceClient, secret, chatID string) int {
 	// 日誌要帶 ctx 才會有 trace_id / span_id（見 CLAUDE.md 的「日誌與 trace 關聯」）
 	ctx := r.Context()
 
@@ -129,6 +130,21 @@ func webhook(w http.ResponseWriter, r *http.Request, bk bookkeepinggrpc.Bookkeep
 	}
 
 	if update.Message == nil {
+		return http.StatusOK
+	}
+
+	/*
+	 * 只回應使用者本人的私人對話：secret 只證明請求來自 Telegram，任何人私訊 bot 都會帶著正確的 secret 進來。
+	 *
+	 * 回 200 而不是 403：Telegram 對非 2xx 會重送同一則 update。
+	 * 不沿用 authorizedSecret 的「空字串放行」：chatID 未設定時，Chat.ID 轉出的字串不可能相等，一律擋下。
+	 */
+	if strconv.FormatInt(update.Message.Chat.ID, 10) != chatID {
+		slog.WarnContext(
+			ctx,
+			"webhook ignored: not from the user's private chat",
+			"chat_id", update.Message.Chat.ID,
+		)
 		return http.StatusOK
 	}
 

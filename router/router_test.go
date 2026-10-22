@@ -125,7 +125,7 @@ func post(t *testing.T, path, body, secret string, header map[string]string) *ht
 	}
 
 	w := httptest.NewRecorder()
-	New(nil, secret).ServeHTTP(w, req)
+	New(nil, secret, userChatID).ServeHTTP(w, req)
 
 	return w
 }
@@ -243,7 +243,8 @@ func TestWebhookDecodeErrorLogCarriesTraceContext(t *testing.T) {
 type stubBookkeeping struct {
 	err error
 
-	mu sync.Mutex
+	mu     sync.Mutex
+	called bool
 	// 下游實際拿到的剩餘預算，量在 stub 裡才不會把呼叫端的組裝時間算進去
 	remaining   time.Duration
 	hasDeadline bool
@@ -257,6 +258,7 @@ func (s *stubBookkeeping) Group(ctx context.Context, _ *bookkeepingpb.GroupReque
 	deadline, ok := ctx.Deadline()
 
 	s.mu.Lock()
+	s.called = true
 	s.hasDeadline = ok
 	s.remaining = time.Until(deadline)
 	s.mu.Unlock()
@@ -274,7 +276,7 @@ func TestBookkeepingFailureMarksSpanAsError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(groupCommandBody))
 	handler := instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, &stubBookkeeping{err: errors.New("connection refused")}, "")
+		return webhook(w, r, &stubBookkeeping{err: errors.New("connection refused")}, "", userChatID)
 	})
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -326,6 +328,45 @@ func TestPanickingHandlerMarksSpanAsError(t *testing.T) {
 
 const groupCommandBody = `{"message":{"chat":{"id":1},"text":"/group"}}`
 
+// 測試 update 的 chat id 都是 1，視為使用者本人的私人對話
+const userChatID = "1"
+
+/*
+ * secret 只證明請求來自 Telegram；陌生人私訊 bot 一樣帶著正確的 secret 進來，擋人要靠 chat。
+ * 回應必須是 200 —— 非 2xx 會讓 Telegram 重送同一則 update。
+ */
+func TestWebhookIgnoresOtherChats(t *testing.T) {
+	tests := []struct {
+		name   string
+		chatID string
+	}{
+		{"別人的 chat", "2"},
+		// 不能沿用 secret 的「空字串放行」，設定漏了也要全擋
+		{"未設定 chat 時全擋", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubBookkeeping{}
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(groupCommandBody))
+
+			if status := webhook(w, r, stub, "", tt.chatID); status != http.StatusOK {
+				t.Errorf("回傳狀態 = %d, want %d", status, http.StatusOK)
+			}
+			if w.Body.Len() != 0 {
+				t.Errorf("回覆內容 = %q, want 空（不能回任何東西給陌生人）", w.Body.String())
+			}
+
+			stub.mu.Lock()
+			called := stub.called
+			stub.mu.Unlock()
+			if called {
+				t.Error("bookkeeping 被呼叫了，陌生人的指令不該走到下游")
+			}
+		})
+	}
+}
+
 /*
  * 呼叫端沒設 deadline 的話，一個沒回應的 bookkeeping 會把 webhook 請求無限期拖住，
  * 而 gRPC 是靠呼叫端的 deadline 隨 metadata 傳到下游，兩端的上限都來自這裡
@@ -335,7 +376,7 @@ func TestBookkeepingCallCarriesDeadline(t *testing.T) {
 
 	stub := &stubBookkeeping{}
 	handler := instrument(func(w http.ResponseWriter, r *http.Request) int {
-		return webhook(w, r, stub, "")
+		return webhook(w, r, stub, "", userChatID)
 	})
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(groupCommandBody)))
