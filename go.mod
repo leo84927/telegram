@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	buf.build/gen/go/leo84927-proto/scheduler/grpc/go v1.6.2-20260617092915-630856905b4e.1
-	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.11-20260707065043-d47284b3e946.1
+	buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go v1.36.12-20261029041756-081c0f7b187c.2
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/leo84927/core/v2 v2.1.2
@@ -15,7 +15,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	google.golang.org/grpc v1.81.1
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (

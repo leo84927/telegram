@@ -5,6 +5,7 @@ import (
 
 	erp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/exchange_rate"
 	mqp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/rabbitmq"
+	stp "buf.build/gen/go/leo84927-proto/scheduler/protocolbuffers/go/stock"
 	"github.com/rotisserie/eris"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -13,6 +14,7 @@ import (
 const (
 	twdReverseScale = 3
 	rateFormat = "%s/%s : %s"
+	priceFormat = "%s : %s"
 )
 
 /*
@@ -24,6 +26,9 @@ func format(envelope *mqp.Envelope) (string, error) {
 	switch envelope.Type {
 	case mqp.EnvelopeType_TELEGRAM_SUCCESS_EXCHANGE_RATE:
 		return formatExchangeRate(envelope.Data)
+
+	case mqp.EnvelopeType_TELEGRAM_SUCCESS_STOCK_PRICE:
+		return formatStockPrice(envelope.Data)
 
 	// TELEGRAM_ERROR 和 default 一律原樣送出
 	case mqp.EnvelopeType_TELEGRAM_ERROR:
@@ -55,4 +60,14 @@ func formatExchangeRate(data string) (string, error) {
 	}
 
 	return fmt.Sprintf(rateFormat, exchangeRate.BaseCurrency, exchangeRate.CounterCurrency, exchangeRate.Rate), nil
+}
+
+// 沒成交時是 "-"，照樣送出
+func formatStockPrice(data string) (string, error) {
+	var stockPrice stp.StockPrice
+	if err := protojson.Unmarshal([]byte(data), &stockPrice); err != nil {
+		return "", eris.Wrap(err, "unmarshal stock price failed")
+	}
+
+	return fmt.Sprintf(priceFormat, stockPrice.Name, stockPrice.Price), nil
 }

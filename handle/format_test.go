@@ -53,6 +53,23 @@ func TestFormat(t *testing.T) {
 			want: "USD/TWD : 0.031",
 		},
 		{
+			// 價格照 MIS 原樣，不重算、不補位；symbol 只用來辨識，不顯示
+			name: "股價照原樣呈現名稱與價格",
+			envelope: &mqp.Envelope{
+				Type: mqp.EnvelopeType_TELEGRAM_SUCCESS_STOCK_PRICE,
+				Data: `{"symbol":"tse_2330","name":"台積電","price":"2415.0000"}`,
+			},
+			want: "台積電 : 2415.0000",
+		},
+		{
+			name: "沒成交時價格是 - 照樣呈現",
+			envelope: &mqp.Envelope{
+				Type: mqp.EnvelopeType_TELEGRAM_SUCCESS_STOCK_PRICE,
+				Data: `{"symbol":"tse_2330","name":"台積電","price":"-"}`,
+			},
+			want: "台積電 : -",
+		},
+		{
 			name: "錯誤通知的 Data 本身就是要給人看的文字",
 			envelope: &mqp.Envelope{
 				Type: mqp.EnvelopeType_TELEGRAM_ERROR,
@@ -79,6 +96,17 @@ func TestFormat(t *testing.T) {
 func TestFormatRejectsUnparsableExchangeRate(t *testing.T) {
 	_, err := format(&mqp.Envelope{
 		Type: mqp.EnvelopeType_TELEGRAM_SUCCESS_EXCHANGE_RATE,
+		Data: "not json",
+	})
+	if err == nil {
+		t.Fatal("format() error = nil, 期望解析失敗")
+	}
+}
+
+// Data 解不出 StockPrice 時回 error，而不是把一段 JSON 原文送進 chat
+func TestFormatRejectsUnparsableStockPrice(t *testing.T) {
+	_, err := format(&mqp.Envelope{
+		Type: mqp.EnvelopeType_TELEGRAM_SUCCESS_STOCK_PRICE,
 		Data: "not json",
 	})
 	if err == nil {
